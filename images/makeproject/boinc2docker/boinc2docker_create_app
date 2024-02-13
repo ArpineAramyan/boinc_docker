@@ -13,6 +13,8 @@ from distutils.dir_util import copy_tree
 import xml.etree.ElementTree as et
 from xml.dom import minidom
 from textwrap import dedent
+import os
+import stat
 
 #some convenience stuff
 rootdir=dirname(abspath(__file__))
