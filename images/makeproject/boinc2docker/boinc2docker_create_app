@@ -122,6 +122,8 @@ for platform in platforms:
         open(join(rootdir,'docker_script')).read()
     )
 
+    os.chmod(join(appfolder, 'docker_script'), stat.S_IRWXU | stat.S_IRWXG)
+
     open(join(appfolder,'boinc2docker.xml'),'w').write(
         open(join(rootdir,'boinc2docker.xml')).read()
     )
