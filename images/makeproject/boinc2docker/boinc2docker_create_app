@@ -118,7 +118,7 @@ for platform in platforms:
         open(join(rootdir,'version.xml')).read().format(wrapper=basename(wrapper_file))
     )
 
-    #vboxwrapper and ISO
+    #wrapper and ISO
     copy(wrapper_file,appfolder)
     open(join(appfolder,'docker_script'),'w').write(
         open(join(rootdir,'docker_script')).read()
