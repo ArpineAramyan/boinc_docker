@@ -1,6 +1,6 @@
 // This file is part of BOINC.
 // http://boinc.berkeley.edu
-// Copyright (C) 2018 University of California
+// Copyright (C) 2023 University of California
 //
 // BOINC is free software; you can redistribute it and/or modify it
 // under the terms of the GNU Lesser General Public License
@@ -24,10 +24,8 @@
 //
 // 2) a better one (class XML_PARSER) which parses arbitrary XML
 
-#if   defined(_WIN32) && !defined(__STDWX_H__)
+#if defined(_WIN32)
 #include "boinc_win.h"
-#elif defined(_WIN32) && defined(__STDWX_H__)
-#include "stdwx.h"
 #else
 #include "config.h"
 #include <cstring>
@@ -41,9 +39,11 @@
 #endif
 #endif
 
-#ifdef _USING_FCGI_
-#include "boinc_fcgi.h"
+#ifdef __APPLE__
+#include <xlocale.h>
 #endif
+
+#include "boinc_stdio.h"
 
 #include "error_numbers.h"
 #include "str_replace.h"
@@ -53,6 +53,28 @@
 #include "parse.h"
 
 using std::string;
+
+unsigned long long boinc_strtoull(const char *str, char **endptr, int base) {
+#if (defined (__cplusplus) && __cplusplus > 199711L) || defined(HAVE_STRTOULL) || defined(__MINGW32__)
+    return strtoull(str, endptr, base);
+#elif defined(_WIN32) && !defined(__MINGW32__)
+    return _strtoui64(str, endptr, base);
+#else
+    char buf[64];
+    char *p;
+    unsigned long long y;
+    strncpy(buf, str, sizeof(buf)-1);
+    strip_whitespace(buf);
+    p = strstr(buf, "0x");
+    if (!p) p = strstr(buf, "0X");
+    if (p) {
+        sscanf(p, "%llx", &y);
+    } else {
+        sscanf(buf, "%llu", &y);
+    }
+    return y;
+#endif
+}
 
 // Parse a boolean; tag is of form "foobar"
 // Accept either <foobar/>, <foobar />, or <foobar>0|1</foobar>
@@ -135,10 +157,10 @@ void parse_attr(const char* buf, const char* name, char* dest, int len) {
 
 int copy_stream(FILE* in, FILE* out) {
     char buf[1024];
-    int n, m;
+    size_t n, m;
     while (1) {
-        n = (int)fread(buf, 1, 1024, in);
-        m = (int)fwrite(buf, 1, n, out);
+        n = boinc::fread(buf, 1, 1024, in);
+        m = boinc::fwrite(buf, 1, n, out);
         if (m != n) return ERR_FWRITE;
         if (n < 1024) break;
     }
@@ -206,7 +228,7 @@ int copy_element_contents(FILE* in, const char* end_tag, string& str) {
 
     str = "";
     while (1) {
-        c = fgetc(in);
+        c = boinc::fgetc(in);
         if (c == EOF) break;
         str += c;
         n++;
@@ -309,7 +331,7 @@ void extract_venue(const char* in, const char* venue_name, char* out, int len) {
 char* sgets(char* buf, int len, char*& in) {
     char* p;
 
-    p = strstr(in, "\n");
+    p = strchr(in, '\n');
     if (!p) return NULL;
     *p = 0;
     strlcpy(buf, in, len);
@@ -725,7 +747,12 @@ bool XML_PARSER::parse_double(const char* start_tag, double& x) {
         }
     }
     errno = 0;
+#if (defined(__APPLE__) && defined(BUILDING_MANAGER))
+// MacOS 13.3.1 apparently broke per-thread locale uselocale()
+    double val = strtod_l(buf, &end, LC_C_LOCALE);
+#else
     double val = strtod(buf, &end);
+#endif
     if (errno) return false;
     if (end != buf+strlen(buf)) return false;
 
@@ -875,7 +902,7 @@ void XML_PARSER::skip_unexpected(
     char buf[TAG_BUF_LEN], end_tag[TAG_BUF_LEN];
 
     if (verbose) {
-        fprintf(stderr,
+        boinc::fprintf(stderr,
             "%s: Unrecognized XML tag '<%s>' in %s; skipping\n",
             time_to_string(dtime()), start_tag, where
         );
@@ -915,7 +942,7 @@ int XML_PARSER::copy_element(string& out) {
     out = "<";
     out += parsed_tag;
     out += ">";
-    snprintf(end_tag, sizeof(end_tag), "</%s>", parsed_tag);
+    snprintf(end_tag, sizeof(end_tag), "</%.256s>", parsed_tag);
     int retval = element_contents(end_tag, buf, sizeof(buf));
     if (retval) return retval;
     out += buf;

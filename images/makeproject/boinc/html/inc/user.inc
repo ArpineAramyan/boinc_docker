@@ -41,6 +41,7 @@ function get_other_projects($user) {
     $cacheddata = get_cached_data(REMOTE_PROJECTS_TTL, $url);
     if ($cacheddata) {
         $remote = unserialize($cacheddata);
+        if (!$remote) $remote = [];
     } else {
         // Fetch the XML, use curl if fopen() is disallowed
         //
@@ -77,18 +78,14 @@ function get_other_projects($user) {
         // auto-cast the project list to an array of stdClass projects
         //
         $remote = @json_decode(json_encode((array)$xml_object))->project;
-        if (count($remote) == 1) {
-            $remote = array($remote);
+        if (!$remote) $remote = [];
+        if (!is_array($remote)) {
+            $remote = [$remote];
         }
 
-        if (!$remote) {
-            return $user;
-        } else {
-            // Cache the results
-            set_cached_data(REMOTE_PROJECTS_TTL, serialize($remote), $url);
-        }
+        // Cache the results
+        set_cached_data(REMOTE_PROJECTS_TTL, serialize($remote), $url);
     }
-
     $user->projects = $remote;
     return $user;
 }
@@ -190,7 +187,6 @@ function show_user_stats_private($user) {
         }
         $x .= ' &middot; <a href="cert_all.php">'.tra("Cross-project").'</a>';
         row2(tra("Certificate"), $x);
-        row2(tra("Stats on your cell phone"), url_base()."userw.php?id=$user->id");
     }
 }
 
@@ -208,6 +204,16 @@ function notify_description($notify) {
     return null;
 }
 
+// a string that can be used to authenticate some operations,
+// but can't be used to log in to the account
+// (e.g. can't be used to change email addr or passwd)
+//
+// this is a function of
+// - authenticator (never changes)
+// - user ID (never changes)
+// - password
+// - email addr
+//
 function weak_auth($user) {
     $x = md5($user->authenticator.$user->passwd_hash);
     return "{$user->id}_$x";
@@ -220,6 +226,8 @@ function weak_auth($user) {
 // it to a canonical form, with the protocol prefix.
 //
 function normalize_user_url($url) {
+    $url = sanitize_user_url($url);
+    if (!$url) return '';
     $x = strtolower($url);
     if (substr($x, 0, 7) == 'http://') {
         return 'http://'.substr($url, 7);
@@ -243,11 +251,12 @@ function show_user_info_private($user) {
         }
         row2(tra("Email address"), $email_text);
     }
-    if (USER_URL) {
-        if (strlen($user->url)) {
-            $u = normalize_user_url($user->url);
-            row2(tra("URL"), sprintf('<a href="%s">%s</a>', $u, $u));
-        }
+    if (USER_URL && $user->url) {
+        $u = normalize_user_url($user->url);
+        row2(
+            tra("URL"),
+            $u?sprintf('<a href="%s">%s</a>', $u, $u):tra('Invalid URL')
+        );
     }
     if (USER_COUNTRY) {
         row2(tra("Country"), $user->country);
@@ -283,7 +292,7 @@ function show_user_info_private($user) {
             tra("Account keys"),
             "<a href=\"weak_auth.php\">".tra("View")."</a>"
         );
-        
+
         require_once("../inc/account_ownership.inc");
         if (file_exists($account_ownership_private_key_file_path)) {
           // If the server has keys configured show the account ownership form
@@ -455,14 +464,12 @@ function show_user_summary_public($user) {
     if (USER_COUNTRY) {
         row2(tra("Country"), $user->country);
     }
-    if (USER_URL) {
+    if (USER_URL && $user->url) {
         // don't show URL if user has no recent credit (spam suppression)
         //
-        if (strlen($user->url)) {
-            if (!NO_COMPUTING || $user->expavg_credit > 1) {
-                $u = normalize_user_url($user->url);
-                row2(tra("URL"), sprintf('<a href="%s">%s</a>', $u, $u));
-            }
+        if (!NO_COMPUTING || $user->expavg_credit > 1) {
+            $u = normalize_user_url($user->url);
+            row2(tra("URL"), sprintf('<a href="%s">%s</a>', $u, $u));
         }
     }
     if (!NO_COMPUTING) {

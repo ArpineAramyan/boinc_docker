@@ -129,7 +129,7 @@ table.ignore_user {
 }
 .form-radios .form-item {
   float: left;
-} 
+}
 .simple-form-controls .form-item .description,
 .simple-form-controls .form-item label {
   width: auto;
@@ -280,7 +280,7 @@ span.password-confirm {
  * Search form and results
  */
 .section-find .box{
-  
+
   margin-top: 2.0em;
   padding-top: 1.0em;
   border-top: 2px dotted #aaa;
@@ -328,7 +328,7 @@ span.password-confirm {
 }
 .section-find .result.user .user-stats {
   font-size: 0.85em;
-  
+
 }
 
 
@@ -533,7 +533,7 @@ html.js fieldset.collapsible legend a,
 }
 
 #edit-prefs-advanced-processor-start-hour-wrapper,
-#edit-prefs-advanced-processor-end-hour-wrapper, 
+#edit-prefs-advanced-processor-end-hour-wrapper,
 #edit-prefs-advanced-network-net-start-hour-wrapper,
 #edit-prefs-advanced-network-net-end-hour-wrapper,
 #edit-prefs-advanced-network-daily-xfer-limit-mb-wrapper,
@@ -637,12 +637,38 @@ html.js fieldset.collapsible legend a,
   padding: 16px;
 }
 
+/*
+ * CKEditor
+ */
+
+body.cke_editable {
+  background: #ffffff;
+  font-size: 12px;
+  line-height: 1.4em;
+  margin: 16px;
+}
+
+.form-item label[for=edit-signature],
+.form-item label[for=edit-body],
+.form-item label[for=edit-field-background-0-value],
+.form-item label[for=edit-field-opinions-0-value] {
+  float: inherit;
+}
+
 /* Re-captcha tweaks */
 .captcha {
 	margin-left: 360px;
 }
 #recaptcha_response_field {
 	left: 0;
+}
+/* This id cancels out the above margin-left for .captcha*/
+#captcha-on-left {
+        margin-left: -360px;
+}
+/*Custom captcha margin for password reset form*/
+#captcha-password-reset {
+	margin-left: -200px;
 }
 
 /* Task App filter */
@@ -662,3 +688,4 @@ select.task-app-filter {
   line-height: 24px;
   margin-right: 40px;
 }
+

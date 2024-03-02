@@ -1,9 +1,0 @@
-#!/bin/bash
-
-set -e
-
-TARGET=build/vm_isocontext_${TAG:-$(git describe --tags --abbrev=0 --match "iso/*" | cut -d "/" -f 2)}.iso
-echo "Building $TARGET..."
-docker build -t boinc2docker boot2docker
-docker run --rm boinc2docker > $TARGET
-echo "Created $TARGET"

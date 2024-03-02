@@ -23,15 +23,20 @@ require_once("../inc/account.inc");
 check_get_args(array("next_url"));
 
 $next_url = get_str('next_url', true);
-$next_url = urldecode($next_url);
-$next_url = sanitize_local_url($next_url);
-$next_url = urlencode($next_url);
+if ($next_url) {
+    $next_url = urldecode($next_url);
+    $next_url = sanitize_local_url($next_url);
+    $next_url = urlencode($next_url);
+}
 
 $user = get_logged_in_user(false);
 if ($user) {
-    page_head("Already logged in");
-    row2("You are logged in as $user->name",
-        ".  <a href=\"logout.php?".url_tokens($user->authenticator)."\">Log out</a>"
+    page_head(tra("Already logged in"));
+    row2(tra("You are logged in as %1.", $user->name),
+        sprintf(' <a href="logout.php?%s">%s</a>',
+            url_tokens($user->authenticator),
+            tra("Log out")
+        )
     );
     page_tail();
     exit;
@@ -53,7 +58,10 @@ $config = get_config();
 if (!parse_bool($config, "disable_account_creation")
     && !parse_bool($config, "no_web_account_creation")
 ) {
-    echo tra("or %1 create an account %2.", "<a href=\"create_account_form.php?next_url=$next_url\">","</a>");
+    echo tra("or %1 create an account %2.",
+        "<a href=\"create_account_form.php?next_url=$next_url\">",
+        "</a>"
+    );
 }
 
 page_tail();

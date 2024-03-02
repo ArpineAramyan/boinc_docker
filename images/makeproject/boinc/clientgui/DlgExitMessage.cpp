@@ -1,6 +1,6 @@
 // This file is part of BOINC.
 // http://boinc.berkeley.edu
-// Copyright (C) 2008 University of California
+// Copyright (C) 2023 University of California
 //
 // BOINC is free software; you can redistribute it and/or modify it
 // under the terms of the GNU Lesser General Public License
@@ -20,6 +20,7 @@
 #pragma implementation "DlgExitMessage.h"
 #endif
 
+////@begin includes
 #include "stdwx.h"
 #include "diagnostics.h"
 #include "network.h"
@@ -30,8 +31,9 @@
 #include "BOINCGUIApp.h"
 #include "SkinManager.h"
 #include "DlgExitMessage.h"
-
-////@begin includes
+#ifdef __WXMAC__
+#include "mac_util.h"
+#endif
 ////@end includes
 
 ////@begin XPM images
@@ -105,14 +107,14 @@ bool CDlgExitMessage::Create( wxWindow* parent, wxWindowID id, const wxString& c
  */
 
 void CDlgExitMessage::CreateControls()
-{    
+{
     CSkinAdvanced* pSkinAdvanced = wxGetApp().GetSkinManager()->GetAdvanced();
     wxString strExitMessage = wxEmptyString;
     wxString strAlwaysExitMessage = wxEmptyString;
 
     wxASSERT(pSkinAdvanced);
     wxASSERT(wxDynamicCast(pSkinAdvanced, CSkinAdvanced));
-    
+
 ////@begin CDlgExitMessage content construction
     CDlgExitMessage* itemDialog1 = this;
 
@@ -131,14 +133,24 @@ void CDlgExitMessage::CreateControls()
         pSkinAdvanced->GetApplicationName().c_str()
     );
 #else
-    strExitMessage.Printf(
-        _("This will shut down %s and its tasks until either the\n%s or the %s screen saver is run again.\n\nIn most cases, it is better just to close the %s window\nrather than to exit the application; that will allow %s to run its\ntasks at the times you selected in your preferences."),
-        pSkinAdvanced->GetApplicationShortName().c_str(),
-        pSkinAdvanced->GetApplicationName().c_str(),
-        pSkinAdvanced->GetApplicationShortName().c_str(),
-        pSkinAdvanced->GetApplicationName().c_str(),
-        pSkinAdvanced->GetApplicationShortName().c_str()
-    );
+    if (compareOSVersionTo(10, 15) >= 0) {
+        strExitMessage.Printf(
+            _("This will shut down %s and its tasks until the\n%s is run again.\n\nIn most cases, it is better just to close the %s window\nrather than to exit the application; that will allow %s to run its\ntasks at the times you selected in your preferences."),
+            pSkinAdvanced->GetApplicationShortName().c_str(),
+            pSkinAdvanced->GetApplicationName().c_str(),
+            pSkinAdvanced->GetApplicationName().c_str(),
+            pSkinAdvanced->GetApplicationShortName().c_str()
+        );
+    } else {
+        strExitMessage.Printf(
+            _("This will shut down %s and its tasks until either the\n%s or the %s screen saver is run again.\n\nIn most cases, it is better just to close the %s window\nrather than to exit the application; that will allow %s to run its\ntasks at the times you selected in your preferences."),
+            pSkinAdvanced->GetApplicationShortName().c_str(),
+            pSkinAdvanced->GetApplicationName().c_str(),
+            pSkinAdvanced->GetApplicationShortName().c_str(),
+            pSkinAdvanced->GetApplicationName().c_str(),
+            pSkinAdvanced->GetApplicationShortName().c_str()
+        );
+    }
 #endif
 
     m_DialogExitMessage = new wxStaticText;
@@ -175,7 +187,7 @@ void CDlgExitMessage::CreateControls()
     itemFlexGridSizer8->Add(itemButton9, 0, wxALIGN_CENTER_HORIZONTAL|wxALIGN_CENTER_VERTICAL|wxALL, 5);
 
     wxButton* itemButton10 = new wxButton;
-    itemButton10->Create( itemDialog1, wxID_CANCEL, _("&Cancel"), wxDefaultPosition, wxDefaultSize, 0 );
+    itemButton10->Create( itemDialog1, wxID_CANCEL, _("Cancel"), wxDefaultPosition, wxDefaultSize, 0 );
     itemFlexGridSizer8->Add(itemButton10, 0, wxALIGN_CENTER_HORIZONTAL|wxALIGN_CENTER_VERTICAL|wxALL, 5);
 
 ////@end CDlgExitMessage content construction

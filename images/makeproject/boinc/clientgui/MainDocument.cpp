@@ -1,6 +1,6 @@
 // This file is part of BOINC.
 // http://boinc.berkeley.edu
-// Copyright (C) 2008 University of California
+// Copyright (C) 2023 University of California
 //
 // BOINC is free software; you can redistribute it and/or modify it
 // under the terms of the GNU Lesser General Public License
@@ -25,11 +25,9 @@
 #include "error_numbers.h"
 #include "str_replace.h"
 #include "util.h"
+
 #ifdef __WXMAC__
 #include "mac_util.h"
-#endif
-#ifdef _WIN32
-#include "proc_control.h"
 #endif
 
 #include "BOINCGUIApp.h"
@@ -126,22 +124,10 @@ CNetworkConnection::~CNetworkConnection() {
 
 int CNetworkConnection::GetLocalPassword(wxString& strPassword){
     char buf[256];
-    safe_strcpy(buf, "");
 
-    FILE* f = fopen("gui_rpc_auth.cfg", "r");
-    if (!f) return errno;
-    fgets(buf, 256, f);
-    fclose(f);
-    int n = (int)strlen(buf);
-    if (n) {
-        n--;
-        if (buf[n]=='\n') {
-            buf[n] = 0;
-        }
-    }
-
+    int retval = read_gui_rpc_password(buf, password_msg);
     strPassword = wxString(buf, wxConvUTF8);
-    return 0;
+    return retval;
 }
 
 
@@ -317,7 +303,7 @@ void CNetworkConnection::SetStateErrorAuthentication() {
 
         m_bConnectEvent = false;
 
-        pFrame->ShowConnectionBadPasswordAlert(m_bUsedDefaultPassword, m_iReadGUIRPCAuthFailure);
+        pFrame->ShowConnectionBadPasswordAlert(m_bUsedDefaultPassword, m_iReadGUIRPCAuthFailure, password_msg);
     }
 }
 
@@ -492,7 +478,7 @@ int CMainDocument::OnInit() {
 
     // client may auto-attach only when first launched
     m_bAutoAttaching = autoattach_in_progress();
-    
+
     m_RPCWaitDlg = NULL;
     m_bWaitingForRPC = false;
     m_bNeedRefresh = false;
@@ -583,6 +569,7 @@ int CMainDocument::OnPoll() {
     int iRetVal = 0;
     wxString hostName = wxGetApp().GetClientHostNameArg();
     wxString password = wxGetApp().GetClientPasswordArg();
+    bool isHostnamePasswordSet = wxGetApp().IsHostnamePasswordSet();
     int portNum = wxGetApp().GetClientRPCPortArg();
 
     wxASSERT(wxDynamicCast(m_pClientManager, CBOINCClientManager));
@@ -592,7 +579,7 @@ int CMainDocument::OnPoll() {
         m_bClientStartCheckCompleted = true;
 
         if (IsComputerNameLocal(hostName)) {
-            if (wxGetApp().IsAnotherInstanceRunning()) {
+            if (wxGetApp().IsAnotherInstanceRunning() && !isHostnamePasswordSet) {
                 if (!pFrame->SelectComputer(hostName, portNum, password, true)) {
                     s_bSkipExitConfirmation = true;
                     wxCommandEvent event;
@@ -603,7 +590,7 @@ int CMainDocument::OnPoll() {
 
         if (wxGetApp().GetNeedRunDaemon() && IsComputerNameLocal(hostName)) {
             if (m_pClientManager->StartupBOINCCore()) {
-                Connect(wxT("localhost"), portNum, password, TRUE, TRUE);
+                Connect(wxT("localhost"), portNum, password, TRUE, password.IsEmpty());
             }
             else {
                 m_pNetworkConnection->ForceDisconnect();
@@ -927,8 +914,8 @@ void CMainDocument::RunPeriodicRPCs(int frameRefreshRate) {
 #ifndef __WXGTK__
         CTaskBarIcon* pTaskbar = wxGetApp().GetTaskBarIcon();
         if (pTaskbar) {
-            CTaskbarEvent event(wxEVT_TASKBAR_REFRESH, pTaskbar);
-            pTaskbar->AddPendingEvent(event);
+            CTaskbarEvent event2(wxEVT_TASKBAR_REFRESH, pTaskbar);
+            pTaskbar->AddPendingEvent(event2);
         }
 #endif
         CDlgEventLog* eventLog = wxGetApp().GetEventLog();
@@ -1272,7 +1259,7 @@ bool CMainDocument::IsUserAuthorized() {
                 return true;
             }
 
-            userName = getlogin();
+            userName = getenv("USER");
             if (userName) {
                 for (i=0; ; i++) {              // Step through all users in group boinc_master
                     groupMember = grp->gr_mem[i];
@@ -1335,7 +1322,7 @@ int CMainDocument::CachedProjectStatusUpdate(bool bForce) {
     if (! IsConnected()) return -1;
 
 #if USE_CACHE_TIMEOUTS
-    wxTimeSpan ts(wxDateTime::Now() - m_dtProjecStatusTimestamp);
+    wxTimeSpan ts(wxDateTime::Now() - m_dtProjectsStatusTimestamp);
     if (ts.GetSeconds() >= (2 * PROJECTSTATUSRPC_INTERVAL)) bForce = true;
 #endif
     if (m_dtProjectsStatusTimestamp.IsEqualTo(wxDateTime((time_t)0))) bForce = true;
@@ -1571,7 +1558,7 @@ int CMainDocument::GetWorkCount() {
 }
 
 
-int CMainDocument::WorkSuspend(char* url, char* name) {
+int CMainDocument::WorkSuspend(const char* url, const char* name) {
     int iRetVal = 0;
 
     RESULT* pStateResult = state.lookup_result(url, name);
@@ -1585,7 +1572,7 @@ int CMainDocument::WorkSuspend(char* url, char* name) {
 }
 
 
-int CMainDocument::WorkResume(char* url, char* name) {
+int CMainDocument::WorkResume(const char* url, const char* name) {
     int iRetVal = 0;
 
     RESULT* pStateResult = state.lookup_result(url, name);
@@ -1602,11 +1589,17 @@ int CMainDocument::WorkResume(char* url, char* name) {
 // If the graphics application for the current task is already
 // running, return a pointer to its RUNNING_GFX_APP struct.
 //
-RUNNING_GFX_APP* CMainDocument::GetRunningGraphicsApp(
-    RESULT* rp, int slot
-) {
+RUNNING_GFX_APP* CMainDocument::GetRunningGraphicsApp(RESULT* rp) {
     bool exited = false;
+    int slot = -1;
     std::vector<RUNNING_GFX_APP>::iterator gfx_app_iter;
+
+    if (m_running_gfx_apps.empty()) return NULL;
+
+    char *p = strrchr((char*)rp->slot_path, '/');
+    if (!p) return NULL;
+    slot = atoi(p+1);
+
 
     for( gfx_app_iter = m_running_gfx_apps.begin();
         gfx_app_iter != m_running_gfx_apps.end();
@@ -1634,10 +1627,27 @@ RUNNING_GFX_APP* CMainDocument::GetRunningGraphicsApp(
             }
 
             // Graphics app is still running but the slot now has a different task
-            KillGraphicsApp((*gfx_app_iter).pid);
-        }
+#ifdef __WXMAC__
+            // For some graphics apps (including Einstein), we must explicitly delete both
+            // our forked process and its child graphics app, or the other will remain. A
+            // race condition can occur because of the time it takes for our forked process
+            // to launch the graphics app, so we periodically poll for the child's PID until
+            // it is available. If we don't have it yet, we defer killing our forked process.
+            if (g_use_sandbox) {
+                if (!GetGFXPIDFromForkedPID(&(*gfx_app_iter))) {
+                    return 0;    // Ignore "Stop graphics" button until we have graphics app's pid
+                }
+                KillGraphicsApp((*gfx_app_iter).gfx_pid);
+           }
+#endif
+        KillGraphicsApp((*gfx_app_iter).pid);
+       }
 
         // Either the graphics app had already exited or we just killed it
+#ifdef __WXMAC__
+        // Graphics app wrote files in slot directory as logged in user, not boinc_master
+        fix_slot_file_owners((*gfx_app_iter).slot);
+#endif
         (*gfx_app_iter).name.clear();
         (*gfx_app_iter).project_url.clear();
         m_running_gfx_apps.erase(gfx_app_iter);
@@ -1676,7 +1686,25 @@ void CMainDocument::KillInactiveGraphicsApps() {
         }
 
         if (!bStillRunning) {
+#ifdef __WXMAC__
+            // For some graphics apps (including Einstein), we must explicitly delete both
+            // our forked process and its child graphics app, or the other will remain. A
+            // race condition can occur because of the time it takes for our forked process
+            // to launch the graphics app, so we periodically poll for the child's PID until
+            // it is available. If we don't have it yet, we defer killing our forked process.
+            if (g_use_sandbox) {
+                if (!GetGFXPIDFromForkedPID(&(*gfx_app_iter))) {
+                    return;    // Ignore "Stop graphics" button until we have graphics app's pid
+                }
+                KillGraphicsApp((*gfx_app_iter).gfx_pid);
+                KillGraphicsApp((*gfx_app_iter).pid);
+
+                // Graphics app wrote files in slot directory as logged in user, not boinc_master
+                fix_slot_file_owners((*gfx_app_iter).slot);
+           }
+#else
             KillGraphicsApp((*gfx_app_iter).pid);
+#endif
             gfx_app_iter = m_running_gfx_apps.erase(gfx_app_iter);
         } else {
             gfx_app_iter++;
@@ -1686,6 +1714,7 @@ void CMainDocument::KillInactiveGraphicsApps() {
 }
 
 
+// KillAllRunningGraphicsApps() is called only from our destructor
 void CMainDocument::KillAllRunningGraphicsApps()
 {
     size_t i, n;
@@ -1694,7 +1723,30 @@ void CMainDocument::KillAllRunningGraphicsApps()
     n = m_running_gfx_apps.size();
     for (i=0; i<n; i++) {
         gfx_app_iter = m_running_gfx_apps.begin();
+#ifdef __WXMAC__
+        // For some graphics apps (including Einstein), we must explicitly delete both
+        // our forked process and its child graphics app, or the other will remain. A
+        // race condition can occur because of the time it takes for our forked process
+        // to launch the graphics app, so we periodically poll for the child's PID until
+        // it is available. If we don't have it yet, we defer killing our forked process.
+        if (g_use_sandbox) {
+            for (int j=0; j<100; ++j) { // Wait 1 second max for gfx app's pid
+                if (GetGFXPIDFromForkedPID(&(*gfx_app_iter))) {
+                    KillGraphicsApp((*gfx_app_iter).gfx_pid);
+                    break;
+                }
+                boinc_sleep(.01);
+            }
+            KillGraphicsApp((*gfx_app_iter).pid);
+
+            // Graphics app wrote files in slot directory as logged in user, not boinc_master
+            fix_slot_file_owners((*gfx_app_iter).slot);
+        } else {
+            KillGraphicsApp((*gfx_app_iter).pid);
+        }
+#else
         KillGraphicsApp((*gfx_app_iter).pid);
+#endif
         (*gfx_app_iter).name.clear();
         (*gfx_app_iter).project_url.clear();
         m_running_gfx_apps.erase(gfx_app_iter);
@@ -1704,38 +1756,58 @@ void CMainDocument::KillAllRunningGraphicsApps()
 
 #ifdef _WIN32
 void CMainDocument::KillGraphicsApp(HANDLE pid) {
-    kill_program(pid);
+    kill_process(pid);
 }
 #else
 void CMainDocument::KillGraphicsApp(int pid) {
-    char* argv[6];
-    char currentDir[1024];
-    char thePIDbuf[20];
-    int id, iRetVal;
-
-
-    if (g_use_sandbox) {
-        snprintf(thePIDbuf, sizeof(thePIDbuf), "%d", pid);
-        argv[0] = "switcher";
-        argv[1] = "/bin/kill";
-        argv[2] =  "kill";
-        argv[3] = "-KILL";
-        argv[4] = thePIDbuf;
-        argv[5] = 0;
-
-        iRetVal = run_program(
-            getcwd(currentDir, sizeof(currentDir)),
-            "./switcher/switcher",
-            5,
-            argv,
-            0,
-            id
-        );
-    } else {
-        kill_program(pid);
-    }
+    // As of MacOS 13.0 Ventura IOSurface cannot be used to share graphics
+    // between apps unless they are running as the same user, so we no
+    // longer run the graphics apps as user boinc_master.
+    kill_process(pid);
 }
 #endif
+
+
+#ifdef __WXMAC__
+// For some graphics apps (including Einstein), we must explicitly delete both
+// our forked process and its child graphics app, or the other will remain. A
+// race condition can occur because of the time it takes for our forked process
+// to launch the graphics app, so we periodically call this method to poll for
+// the child's PID until it is available..
+//
+int CMainDocument::GetGFXPIDFromForkedPID(RUNNING_GFX_APP* gfx_app) {
+    char buf[256];
+
+    if (gfx_app->gfx_pid) return gfx_app->gfx_pid;    // We already found it
+
+    // The graphics app is the child of our forked process. Get its PID
+    FILE *fp = (FILE*)popen("ps -xoppid,pid","r");
+    fgets(buf, sizeof(buf), fp);    // Skip the header line
+    int parent, child;
+
+    // Find the process whose parent is our forked process
+    while (fscanf(fp, "%d %d\n", &parent, &child) == 2) {
+        if (parent == gfx_app->pid) {
+            gfx_app->gfx_pid = child;
+            break;
+        }
+    }
+    pclose(fp);
+    return gfx_app->gfx_pid;
+}
+
+
+int CMainDocument::fix_slot_file_owners(int slot) {
+    if (g_use_sandbox) {
+        // Graphics apps run by Manager write files in slot directory
+        // as logged in user, not boinc_master. This ugly hack tells
+        // BOINC client to fix all ownerships in this slot directory
+        rpcClient.run_graphics_app("stop", slot, "");
+    }
+    return 0;
+}
+#endif
+
 
 int CMainDocument::WorkShowGraphics(RESULT* rp) {
     int iRetVal = 0;
@@ -1754,78 +1826,102 @@ int CMainDocument::WorkShowGraphics(RESULT* rp) {
 #ifdef __WXMSW__
         HANDLE   id;
 #else
-        int      id;
+        int      id = 0;
 #endif
 
-        p = strrchr((char*)rp->slot_path, '/');
-        if (!p) return ERR_INVALID_PARAM;
-        slot = atoi(p+1);
-
         // See if we are already running the graphics application for this task
-        previous_gfx_app = GetRunningGraphicsApp(rp, slot);
-
-#ifndef __WXMSW__
-        char* argv[4];
+        previous_gfx_app = GetRunningGraphicsApp(rp);
 
         if (previous_gfx_app) {
 #ifdef __WXMAC__
-            // If this graphics app is already running,
-            // just bring it to the front
-            //
-            BringAppWithPidToFront(previous_gfx_app->pid);
+            if (g_use_sandbox) {
+                // If graphics app is already running, the button has changed to
+                // "Stop graphics", so we end the graphics app.
+                //
+                // For some graphics apps (including Einstein), we must explicitly delete both
+                // our forked process and its child graphics app, or the other will remain. A
+                // race condition can occur because of the time it takes for our forked process
+                // to launch the graphics app, so we periodically poll for the child's PID until
+                // it is available. If we don't have it yet, then defer responding to the "Stop
+                // graphics" button.
+                if (!GetGFXPIDFromForkedPID(previous_gfx_app)) {
+                    return 0;    // Ignore "Stop graphics" button until we have graphics app's pid
+                }
+                KillGraphicsApp(previous_gfx_app->gfx_pid);
+            }
 #endif
-            // If graphics app is already running, don't launch a second instance
-            //
+            KillGraphicsApp(previous_gfx_app->pid); // User clicked on "Stop graphics" button
+            GetRunningGraphicsApp(rp);  // Let GetRunningGraphicsApp() do necessary clean up
             return 0;
         }
-        argv[0] = "switcher";
-        // For unknown reasons on Macs, the graphics application
-        // exits with "RegisterProcess failed (error = -50)" unless
-        // we pass its full path twice in the argument list to execv.
-        //
-        argv[1] = (char *)rp->graphics_exec_path;
-        argv[2] = (char *)rp->graphics_exec_path;
-        argv[3] = 0;
 
-        if (g_use_sandbox) {
-            iRetVal = run_program(
-                rp->slot_path,
-                "../../switcher/switcher",
-                3,
-                argv,
-                0,
-                id
-            );
-        } else {
-            iRetVal = run_program(
-                rp->slot_path,
-                rp->graphics_exec_path,
-                1,
-                &argv[2],
-                0,
-                id
-            );
-        }
-#else
-        // If graphics app is already running, don't launch a second instance
-        //
-        if (previous_gfx_app) return 0;
 
         char* argv[2] = {
             rp->graphics_exec_path,
             NULL
         };
 
+#ifdef __WXMAC__
+        if (g_use_sandbox) {    // Used only by Mac
+            int pid = fork();
+            char path[MAXPATHLEN];
+            char cmd[2048];
+
+            // As of MacOS 13.0 Ventura IOSurface cannot be used to share graphics
+            // between apps unless they are running as the same user, so we no
+            // longer run the graphics apps as user boinc_master. To replace the
+            // security that was provided by running as a different user, we use
+            // sandbox-exec() to launch the graphics apps. Note that sandbox-exec()
+            // is marked deprecated because it is an Apple private API so the syntax
+            // of the security specifications is subject to change without notice.
+            // But it is used widely in Apple's software, and the security profile
+            // elements we use are very unlikely to change.
+            if (pid == 0) {
+                // For unknown reasons, the graphics application exits with
+                // "RegisterProcess failed (error = -50)" unless we pass its
+                // full path twice in the argument list to execv.
+                strlcpy(cmd, "sandbox-exec -f \"", sizeof(cmd));
+                getPathToThisApp(path, sizeof(path));
+                strlcat(cmd, path, sizeof(cmd)); // path to this executable
+                strlcat(cmd, "/Contents/Resources/mac_restrict_access.sb\" \"", sizeof(cmd)); // path to sandboxing profile
+                strlcat(cmd, rp->graphics_exec_path, sizeof(cmd)); // path to graphics app
+                strlcat(cmd, "\"", sizeof(cmd)); // path to sandboxing profile
+                chdir(rp->slot_path);
+                iRetVal = callPosixSpawn(cmd);
+
+                exit(0);
+            }
+            id = pid;
+            // The graphics app is the child of our forked process. Get its PID
+            gfx_app.pid = id;
+            gfx_app.gfx_pid = 0;    // Initialize GetGFXPIDFromForkedPID()
+            gfx_app.gfx_pid = GetGFXPIDFromForkedPID(&gfx_app);
+        } else  // !g_use_sandbox
+#endif  // __WXMAC__
+#ifndef __WXMSW__
+        {
+            iRetVal = run_program(
+                rp->slot_path,
+                rp->graphics_exec_path,
+                1,
+                argv,
+                id
+            );
+        }
+#else
         iRetVal = run_program(
             rp->slot_path,
             rp->graphics_exec_path,
             1,
             argv,
-            0,
             id
         );
 #endif
         if (!iRetVal) {
+            p = strrchr((char*)rp->slot_path, '/');
+            if (!p) return ERR_INVALID_PARAM;
+            slot = atoi(p+1);
+
             gfx_app.slot = slot;
             gfx_app.project_url = rp->project_url;
             gfx_app.name = rp->name;
@@ -1849,7 +1945,19 @@ int CMainDocument::WorkShowVMConsole(RESULT* res) {
         wxExecute(strCommand);
 #elif defined(__WXGTK__)
         strCommand = wxT("rdesktop-vrdp ") + strConnection;
-        wxExecute(strCommand);
+        int pid = wxExecute(strCommand);
+        // newer versions of VirtualBox don't include rdesktop-vrdp;
+        // try a standard version instead
+        //
+        if (pid == 0) {
+            strCommand = wxT("rdesktop ") + strConnection;
+            pid = wxExecute(strCommand);
+        }
+        if (pid == 0) {
+            strCommand = wxT("xfreerdp ") + strConnection;
+            pid = wxExecute(strCommand);
+        }
+        // show an error if all the above fail?
 #elif defined(__WXMAC__)
         OSStatus status = noErr;
         char pathToCoRD[MAXPATHLEN];
@@ -1883,7 +1991,7 @@ int CMainDocument::WorkShowVMConsole(RESULT* res) {
 }
 
 
-int CMainDocument::WorkAbort(char* url, char* name) {
+int CMainDocument::WorkAbort(const char* url, const char* name) {
     int iRetVal = 0;
 
     RESULT* pStateResult = state.lookup_result(url, name);
@@ -2652,7 +2760,7 @@ static void hsv2rgb(
 //
 void color_cycle(int i, int n, wxColour& color) {
     double h = (double)i/(double)n;
-    double r, g, b;
+    double r = 0.0, g = 0.0, b = 0.0;
     double v = .75;
     if (n > 6) v = .6 + (i % 3)*.1;
         // cycle through 3 different brightnesses
@@ -2663,73 +2771,26 @@ void color_cycle(int i, int n, wxColour& color) {
     color = wxColour(cr, cg, cb);
 }
 
-#ifdef __WXMSW__
-static double XDPIScaleFactor = 0.0;
-static double YDPIScaleFactor = 0.0;
-
-void GetDPIScaling() {
-    XDPIScaleFactor = 1.0;
-    YDPIScaleFactor = 1.0;
-    // SetProcessDPIAware() requires Windows Vista or later
-    HMODULE hUser32 = LoadLibrary(_T("user32.dll"));
-    typedef BOOL (*SetProcessDPIAwareFunc)();
-    SetProcessDPIAwareFunc setDPIAware = (SetProcessDPIAwareFunc)GetProcAddress(hUser32, "SetProcessDPIAware");
-    if (setDPIAware) {
-        setDPIAware();
-        HWND hWnd = GetForegroundWindow();
-        HDC hdc = GetDC(hWnd);
-        XDPIScaleFactor = GetDeviceCaps(hdc, LOGPIXELSX) / 96.0f;
-        YDPIScaleFactor = GetDeviceCaps(hdc, LOGPIXELSY) / 96.0f;
-        ReleaseDC(hWnd, hdc);
-    }
-    FreeLibrary(hUser32);
-}
-
-double GetXDPIScaling() {
-    if (XDPIScaleFactor == 0.0) {
-        GetDPIScaling();
-    }
-    return XDPIScaleFactor;
-}
-
-double GetYDPIScaling() {
-    if (YDPIScaleFactor == 0.0) {
-        GetDPIScaling();
-    }
-    return YDPIScaleFactor;
-}
-#endif
-
-// TODO: Choose from multiple size images if provided, else resize the closest one
-wxBitmap GetScaledBitmapFromXPMData(const char** XPMData) {
-#ifdef __WXMSW__
-    if ((GetXDPIScaling() > 1.05) || (GetYDPIScaling() > 1.05)) {
-        wxImage img = wxImage(XPMData);
-        img.Rescale((int) (img.GetWidth()*GetXDPIScaling()),
-                    (int) (img.GetHeight()*GetYDPIScaling()),
-                    wxIMAGE_QUALITY_BILINEAR
-                );
-        wxBitmap *bm = new wxBitmap(img);
-        return *bm;
-    }
-#endif
-    return wxBitmap(XPMData);
-}
-
 wxString FormatTime(double secs) {
     if (secs <= 0) {
         return wxT("---");
     }
-    wxInt32 iHour = (wxInt32)(secs / (60 * 60));
-    wxInt32 iMin  = (wxInt32)(secs / 60) % 60;
-    wxInt32 iSec  = (wxInt32)(secs) % 60;
-    wxTimeSpan ts = wxTimeSpan(iHour, iMin, iSec);
+
+    wxTimeSpan ts = convert_to_timespan(secs);
     return ts.Format((secs>=86400)?"%Dd %H:%M:%S":"%H:%M:%S");
 }
 
 wxString format_number(double x, int nprec) {
     return wxNumberFormatter::ToString(x, nprec);
 
+}
+
+wxTimeSpan convert_to_timespan(double secs) {
+    wxInt32 iHour = (wxInt32)(secs / (60 * 60));
+    wxInt32 iMin  = (wxInt32)(secs / 60) % 60;
+    wxInt32 iSec  = (wxInt32)(secs) % 60;
+    wxTimeSpan ts = wxTimeSpan(iHour, iMin, iSec);
+    return (ts);
 }
 
 // the autoattach process deletes the installer filename file when done

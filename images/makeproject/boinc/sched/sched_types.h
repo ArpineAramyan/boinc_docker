@@ -1,6 +1,6 @@
 // This file is part of BOINC.
 // http://boinc.berkeley.edu
-// Copyright (C) 2008 University of California
+// Copyright (C) 2023 University of California
 //
 // BOINC is free software; you can redistribute it and/or modify it
 // under the terms of the GNU Lesser General Public License
@@ -111,7 +111,8 @@ struct HOST_USAGE {
         switch (proc_type) {
         case PROC_TYPE_NVIDIA_GPU: return ANON_PLATFORM_NVIDIA;
         case PROC_TYPE_AMD_GPU: return ANON_PLATFORM_ATI;
-        case PROC_TYPE_INTEL_GPU: return ANON_PLATFORM_INTEL;
+        case PROC_TYPE_INTEL_GPU: return ANON_PLATFORM_INTEL_GPU;
+        case PROC_TYPE_APPLE_GPU: return ANON_PLATFORM_APPLE_GPU;
         default: return ANON_PLATFORM_CPU;
         }
     }

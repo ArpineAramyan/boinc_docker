@@ -51,11 +51,6 @@
 DAILY_XFER_HISTORY daily_xfer_history;
 NET_STATUS net_status;
 
-NET_STATS::NET_STATS() {
-    memset(&up, 0, sizeof(up));
-    memset(&down, 0, sizeof(down));
-}
-
 // called after file xfer to update rates
 //
 void NET_INFO::update(double nbytes, double dt) {
@@ -102,7 +97,7 @@ int NET_STATS::write(MIOFILE& out) {
 }
 
 int NET_STATS::parse(XML_PARSER& xp) {
-    memset(this, 0, sizeof(NET_STATS));
+    clear();
     while (!xp.get_tag()) {
         if (xp.match_tag("/net_stats")) return 0;
         if (xp.parse_double("bwup", up.max_rate)) continue;
@@ -276,10 +271,10 @@ void NET_STATUS::poll() {
     // otherwise might show spurious "need connection" message
     //
     if (gstate.now < gstate.last_wakeup_time + 30) return;
-    // wait until after a round of automatic proxy detection 
+    // wait until after a round of automatic proxy detection
     // before attempting to contact the reference site
     //
-    if (working_proxy_info.autodetect_proxy_supported && 
+    if (working_proxy_info.autodetect_proxy_supported &&
         working_proxy_info.need_autodetect_proxy_settings &&
         !working_proxy_info.have_autodetect_proxy_settings) return;
 

@@ -1,6 +1,6 @@
 // This file is part of BOINC.
 // http://boinc.berkeley.edu
-// Copyright (C) 2008 University of California
+// Copyright (C) 2022 University of California
 //
 // BOINC is free software; you can redistribute it and/or modify it
 // under the terms of the GNU Lesser General Public License
@@ -18,11 +18,8 @@
 // This file is code to print (in ASCII) the stuff returned by GUI RPC.
 // Used only by boinccmd.
 
-#if defined(_WIN32) && !defined(__STDWX_H__) && !defined(_BOINC_WIN_) && !defined(_AFX_STDAFX_H_)
+#if defined(_WIN32)
 #include "boinc_win.h"
-#endif
-
-#ifdef _WIN32
 #include "../version.h"
 #else
 #include "config.h"
@@ -99,7 +96,7 @@ void PROJECT::print() {
     printf("   ended: %s\n", ended?"yes":"no");
     printf("   suspended via GUI: %s\n", suspended_via_gui?"yes":"no");
     printf("   don't request more work: %s\n", dont_request_more_work?"yes":"no");
-    printf("   disk usage: %f\n", disk_usage);
+    printf("   disk usage: %.2fMB\n", disk_usage/MEGA);
     time_t foo = (time_t)last_rpc_time;
     printf("   last RPC: %s\n", ctime(&foo));
     printf("   project files downloaded: %f\n", project_files_downloaded_time);
@@ -174,11 +171,14 @@ void RESULT::print() {
             printf("   suspended via GUI: yes\n");
         }
         printf("   estimated CPU time remaining: %f\n", estimated_cpu_time_remaining);
+        printf("   elapsed task time: %f\n", elapsed_time);
     }
 
     // stuff for jobs that are running or have run
     //
     if (scheduler_state > CPU_SCHED_UNINITIALIZED) {
+        printf("   slot: %d\n", slot);
+        printf("   PID: %d\n", pid);
         printf("   CPU time at last checkpoint: %f\n", checkpoint_cpu_time);
         printf("   current CPU time: %f\n", current_cpu_time);
         printf("   fraction done: %f\n", fraction_done);
@@ -207,6 +207,7 @@ void FILE_TRANSFER::print() {
     printf("   sticky: %s\n", sticky?"yes":"no");
     printf("   xfer active: %s\n", xfer_active?"yes":"no");
     printf("   time_so_far: %f\n", time_so_far);
+    if (xfer_active) printf("   estimated_xfer_time_remaining: %f\n", estimated_xfer_time_remaining);
     printf("   bytes_xferred: %f\n", bytes_xferred);
     printf("   xfer_speed: %f\n", xfer_speed);
 }
@@ -218,15 +219,15 @@ void MESSAGE::print() {
 }
 
 void GR_PROXY_INFO::print() {
-    printf("HTTP server name: %s\n",this->http_server_name.c_str()); 
-    printf("HTTP server port: %d\n",this->http_server_port); 
-    printf("HTTP user name: %s\n",this->http_user_name.c_str()); 
-    //printf("HTTP user password: %s\n",this->http_user_passwd.c_str()); 
-    printf("SOCKS server name: %s\n",this->socks_server_name.c_str()); 
-    printf("SOCKS server port: %d\n",this->socks_server_port); 
-    printf("SOCKS5 user name: %s\n",this->socks5_user_name.c_str()); 
-    //printf("SOCKS5 user password: %s\n",this->socks5_user_passwd.c_str()); 
-    printf("no proxy hosts: %s\n",this->noproxy_hosts.c_str()); 
+    printf("HTTP server name: %s\n",this->http_server_name.c_str());
+    printf("HTTP server port: %d\n",this->http_server_port);
+    printf("HTTP user name: %s\n",this->http_user_name.c_str());
+    //printf("HTTP user password: %s\n",this->http_user_passwd.c_str());
+    printf("SOCKS server name: %s\n",this->socks_server_name.c_str());
+    printf("SOCKS server port: %d\n",this->socks_server_port);
+    printf("SOCKS5 user name: %s\n",this->socks5_user_name.c_str());
+    //printf("SOCKS5 user password: %s\n",this->socks5_user_passwd.c_str());
+    printf("no proxy hosts: %s\n",this->noproxy_hosts.c_str());
 }
 
 void HOST_INFO::print() {
@@ -295,6 +296,20 @@ void HOST_INFO::print() {
             ci.opencl_prop.opencl_available_ram = ci.opencl_prop.global_mem_size;
             ci.opencl_prop.is_used = COPROC_USED;
             ci.opencl_prop.description(buf, sizeof(buf), "Intel GPU");
+            printf("    %s\n", buf);
+        }
+    }
+    COPROC_APPLE &cap = coprocs.apple_gpu;
+    if (cap.count) {
+        printf("  Apple GPU\n");
+        if (cap.count > 1) {
+            printf("    Count: %d\n", cap.count);
+        }
+        if (cap.have_opencl) {
+            cap.opencl_prop.peak_flops = cap.peak_flops;
+            cap.opencl_prop.opencl_available_ram = cap.opencl_prop.global_mem_size;
+            cap.opencl_prop.is_used = COPROC_USED;
+            cap.opencl_prop.description(buf, sizeof(buf), "Apple GPU");
             printf("    %s\n", buf);
         }
     }
@@ -426,8 +441,8 @@ void PROJECTS::print_urls() {
 void DISK_USAGE::print() {
     unsigned int i;
     printf("======== Disk usage ========\n");
-    printf("total: %f\n", d_total);
-    printf("free: %f\n", d_free);
+    printf("total: %.2fMB\n", d_total/MEGA);
+    printf("free: %.2fMB\n", d_free/MEGA);
     for (i=0; i<projects.size(); i++) {
         printf("%d) -----------\n", i+1);
         projects[i]->print_disk_usage();

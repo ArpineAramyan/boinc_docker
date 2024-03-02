@@ -30,6 +30,7 @@
 #include "sched_config.h"
 
 #include "sched_result.h"
+#include <ctime>
 
 // got a SUCCESS result; double max jobs per day.
 // TODO: shouldn't we do this only for valid results?
@@ -393,6 +394,12 @@ int handle_results() {
         parse_int(srip->stderr_out, "<exit_status>", srip->exit_status);
         parse_int(srip->stderr_out, "<app_version>", srip->app_version_num);
 
+        if (srip->exit_status == EXIT_ABORTED_BY_CLIENT && strstr(srip->stderr_out, "finish file present too long")) {
+            log_messages.printf(MSG_CRITICAL, "[handle] [RESULT#%lu] [WU#%lu] fixed finish file problem\n", srip->id, srip->workunitid);
+            srip->client_state = RESULT_FILES_UPLOADED;  // if not, it'll fail in validator
+            srip->exit_status = 0;
+        }
+
         if ((srip->client_state == RESULT_FILES_UPLOADED) && (srip->exit_status == 0)) {
             srip->outcome = RESULT_OUTCOME_SUCCESS;
             if (config.debug_handle_results) {
@@ -402,7 +409,7 @@ int handle_results() {
                 );
             }
             got_good_result(*srip);
-            
+
             if (config.dont_store_success_stderr) {
                 strcpy(srip->stderr_out, "");
             }

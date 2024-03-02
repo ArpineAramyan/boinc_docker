@@ -67,7 +67,7 @@ if ($user->uid AND ($user->uid != $account->uid)) {
       'href' => privatemsg_get_link(array($account))
     );
   }
-  
+
   if (module_exists('friends')) {
     $flag = flag_get_flag('friend');
     $friend_status = flag_friend_determine_friend_status($flag, $account->uid, $user->uid);
@@ -131,7 +131,7 @@ if ($user->uid AND ($user->uid != $account->uid)) {
     $user_links2l[] = $ignore_link;
     }
   }
-  
+
   if (user_access('assign community member role')
       OR user_access('assign all roles')) {
     if (array_search('community member', $account->roles)) {
@@ -152,7 +152,7 @@ if ($user->uid AND ($user->uid != $account->uid)) {
 ?>
 <div class="user-profile">
   <div class="picture">
-    <?php 
+    <?php
       $user_image = boincuser_get_user_profile_image($account->uid, FALSE);
       print theme('imagefield_image', $user_image['image'], $user_image['alt'],
         $user_image['alt'], array(), false);
@@ -230,4 +230,16 @@ if ($user->uid AND ($user->uid != $account->uid)) {
       <?php print bts('Profile does not exist.', array(), NULL, 'boinc:user-profile:-1:message-shown-when-there-is-no-profile'); ?>
     </div>
   <?php endif; ?>
+</div>
+<?php
+  $ddname = 'flag_abuse_reason-dropdown-user-' . $account->uid;
+?>
+<div class="dropdown">
+  <div id="<?php print $ddname; ?>" class="dropdown-content">
+    <?php print flag_create_link('abuse_user_1', $account->uid); ?>
+    <?php print flag_create_link('abuse_user_2', $account->uid); ?>
+    <?php print flag_create_link('abuse_user_3', $account->uid); ?>
+    <?php print flag_create_link('abuse_user_4', $account->uid); ?>
+    <?php print flag_create_link('abuse_user_5', $account->uid); ?>
+  </div>
 </div>

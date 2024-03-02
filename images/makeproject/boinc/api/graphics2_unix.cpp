@@ -1,6 +1,6 @@
 // This file is part of BOINC.
 // http://boinc.berkeley.edu
-// Copyright (C) 2017 University of California
+// Copyright (C) 2020 University of California
 //
 // BOINC is free software; you can redistribute it and/or modify it
 // under the terms of the GNU Lesser General Public License
@@ -19,10 +19,10 @@
 //
 #include "config.h"
 #include <cstdlib>
-#include <cstdio>    
-#include <csetjmp>    
-#include <unistd.h> 
-#include <pthread.h> 
+#include <cstdio>
+#include <csetjmp>
+#include <unistd.h>
+#include <pthread.h>
 #include <csignal>
 #include <cstring>
 #include "x_opengl.h"
@@ -46,8 +46,10 @@ static int win=0;
 static int checkparentcounter=0;
 
 #ifdef __APPLE__
-
 static bool need_show = false;
+
+// Set to true to draw both directly to window and also to offscreen buffer
+bool debugSharedOffscreenBuffer = false;
 #endif
 
 bool fullscreen;
@@ -110,7 +112,7 @@ void mouse_click_move(int x, int y){
 static void maybe_render() {
     int new_xpos, new_ypos, new_width, new_height;
     static int size_changed = 0;
-    
+
     new_xpos = glutGet(GLUT_WINDOW_X);
     new_ypos = glutGet(GLUT_WINDOW_Y);
     new_width = glutGet(GLUT_WINDOW_WIDTH);
@@ -119,15 +121,15 @@ static void maybe_render() {
 
     if (throttled_app_render(new_width, new_height, dtime())) {
 #ifdef __APPLE__
-        if (UseSharedOffscreenBuffer()) {
+        if (UseSharedOffscreenBuffer() && !debugSharedOffscreenBuffer) {
             return; // Don't waste cycles drawing to hidden window on screen
         }
 #endif
         glutSwapBuffers();
         if (! fullscreen) {
-            // If user has changed window size, wait until it stops 
+            // If user has changed window size, wait until it stops
             // changing and then write the new dimensions to file
-            if ((new_xpos != xpos) || (new_ypos != ypos) || 
+            if ((new_xpos != xpos) || (new_ypos != ypos) ||
                 (new_width != width) || (new_height != height)
                 ) {
                     size_changed = 1;
@@ -135,9 +137,13 @@ static void maybe_render() {
                     ypos = new_ypos;
                     width = new_width;
                     height = new_height;
+
                 } else {
                     if (size_changed && (++size_changed > 10)) {
                         size_changed = 0;
+#ifdef __APPLE__
+                        ClearDocumentEditedDot();
+#endif
                         FILE *f = boinc_fopen("gfx_info", "w");
                         if (f) {
                             // ToDo: change this to XML
@@ -145,7 +151,7 @@ static void maybe_render() {
                             fclose(f);
                         }
                     }
-                }               // End if (new size != previous size) else 
+                }               // End if (new size != previous size) else
             }                   // End if (! fullscreen)
 #ifdef __APPLE__
         MacGLUTFix(fullscreen);
@@ -165,22 +171,22 @@ static void make_window(const char* title) {
         get_window_title(window_title, 256);
     }
 
-    win = glutCreateWindow(window_title); 
+    win = glutCreateWindow(window_title);
     glutReshapeFunc(app_graphics_resize);
     glutKeyboardFunc(keyboardD);
     glutKeyboardUpFunc(keyboardU);
     glutMouseFunc(mouse_click);
     glutMotionFunc(mouse_click_move);
-    glutDisplayFunc(maybe_render); 
+    glutDisplayFunc(maybe_render);
     glEnable(GL_DEPTH_TEST);
 
     app_graphics_init();
-  
+
 #ifdef __APPLE__
     glutWMCloseFunc(boinc_close_window_and_quit_aux);   // Enable the window's close box
     BringAppToFront();
     // Show window only after a successful call to throttled_app_render();
-    // this avoids momentary display of old image when screensaver restarts 
+    // this avoids momentary display of old image when screensaver restarts
     // which made image appear to "jump."
     need_show = true;
 #endif
@@ -204,9 +210,9 @@ static void boinc_glut_init(int *argc, char** argv) {
     }
 
     glutInit (argc, argv);
-    glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGBA | GLUT_DEPTH | GLUT_ALPHA); 
+    glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGBA | GLUT_DEPTH | GLUT_ALPHA);
     glutInitWindowPosition(xpos, ypos);
-    glutInitWindowSize(width, height); 
+    glutInitWindowSize(width, height);
 }
 
 static void timer_handler(int) {
@@ -242,7 +248,7 @@ void boinc_graphics_loop(int argc, char** argv, const char* title) {
     }
     boinc_glut_init(&argc, argv);
     make_window(title);
-    glutTimerFunc(TIMER_INTERVAL_MSEC, timer_handler, 0);      
+    glutTimerFunc(TIMER_INTERVAL_MSEC, timer_handler, 0);
 #ifdef __APPLE__
     // Apparently glut changed our working directory in OS 10.3.9
     chdir(dir);

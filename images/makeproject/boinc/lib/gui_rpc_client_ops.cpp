@@ -1,6 +1,6 @@
 // This file is part of BOINC.
 // https://boinc.berkeley.edu
-// Copyright (C) 2018 University of California
+// Copyright (C) 2022 University of California
 //
 // BOINC is free software; you can redistribute it and/or modify it
 // under the terms of the GNU Lesser General Public License
@@ -41,16 +41,8 @@
 //   formatting failures for any software that has been localized or
 //   displays localized data.
 
-
-#if defined(_WIN32) && !defined(__STDWX_H__) && !defined(_BOINC_WIN_) && !defined(_AFX_STDAFX_H_)
-#include "boinc_win.h"
-#endif
-
-#ifdef _MSC_VER
-#define snprintf _snprintf
-#endif
-
 #ifdef _WIN32
+#include "boinc_win.h"
 #include "../version.h"
 #else
 #include "config.h"
@@ -322,6 +314,8 @@ int PROJECT::parse(XML_PARSER& xp) {
         if (xp.parse_double("ati_backoff_interval", rsc_desc_ati.backoff_interval)) continue;
         if (xp.parse_double("intel_gpu_backoff_time", rsc_desc_intel_gpu.backoff_time)) continue;
         if (xp.parse_double("intel_gpu_backoff_interval", rsc_desc_intel_gpu.backoff_interval)) continue;
+        if (xp.parse_double("apple_gpu_backoff_time", rsc_desc_apple_gpu.backoff_time)) continue;
+        if (xp.parse_double("apple_gpu_backoff_interval", rsc_desc_apple_gpu.backoff_interval)) continue;
         if (xp.parse_double("last_rpc_time", last_rpc_time)) continue;
 
         // deprecated elements
@@ -343,6 +337,8 @@ int PROJECT::parse(XML_PARSER& xp) {
                         rsc_desc_ati.backoff_time = value;
                     } else if (!strcmp(buf, proc_type_name_xml(PROC_TYPE_INTEL_GPU))) {
                         rsc_desc_intel_gpu.backoff_time = value;
+                    } else if (!strcmp(buf, proc_type_name_xml(PROC_TYPE_APPLE_GPU))) {
+                        rsc_desc_apple_gpu.backoff_time = value;
                     }
                     break;
                 }
@@ -363,6 +359,8 @@ int PROJECT::parse(XML_PARSER& xp) {
                         rsc_desc_ati.backoff_interval = value;
                     } else if (!strcmp(buf, proc_type_name_xml(PROC_TYPE_INTEL_GPU))) {
                         rsc_desc_intel_gpu.backoff_interval = value;
+                    } else if (!strcmp(buf, proc_type_name_xml(PROC_TYPE_APPLE_GPU))) {
+                        rsc_desc_apple_gpu.backoff_interval = value;
                     }
                     break;
                 }
@@ -380,6 +378,8 @@ int PROJECT::parse(XML_PARSER& xp) {
                 rsc_desc_ati.no_rsc_ams = true;
             } else if (!strcmp(buf, proc_type_name_xml(PROC_TYPE_INTEL_GPU))) {
                 rsc_desc_intel_gpu.no_rsc_ams = true;
+            } else if (!strcmp(buf, proc_type_name_xml(PROC_TYPE_APPLE_GPU))) {
+                rsc_desc_apple_gpu.no_rsc_ams = true;
             }
             continue;
         }
@@ -392,6 +392,8 @@ int PROJECT::parse(XML_PARSER& xp) {
                 rsc_desc_ati.no_rsc_apps = true;
             } else if (!strcmp(buf, proc_type_name_xml(PROC_TYPE_INTEL_GPU))) {
                 rsc_desc_intel_gpu.no_rsc_apps = true;
+            } else if (!strcmp(buf, proc_type_name_xml(PROC_TYPE_APPLE_GPU))) {
+                rsc_desc_apple_gpu.no_rsc_apps = true;
             }
             continue;
         }
@@ -404,6 +406,8 @@ int PROJECT::parse(XML_PARSER& xp) {
                 rsc_desc_ati.no_rsc_pref = true;
             } else if (!strcmp(buf, proc_type_name_xml(PROC_TYPE_INTEL_GPU))) {
                 rsc_desc_intel_gpu.no_rsc_pref = true;
+            } else if (!strcmp(buf, proc_type_name_xml(PROC_TYPE_APPLE_GPU))) {
+                rsc_desc_apple_gpu.no_rsc_pref = true;
             }
             continue;
         }
@@ -416,6 +420,8 @@ int PROJECT::parse(XML_PARSER& xp) {
                 rsc_desc_ati.no_rsc_config = true;
             } else if (!strcmp(buf, proc_type_name_xml(PROC_TYPE_INTEL_GPU))) {
                 rsc_desc_intel_gpu.no_rsc_config = true;
+            } else if (!strcmp(buf, proc_type_name_xml(PROC_TYPE_APPLE_GPU))) {
+                rsc_desc_apple_gpu.no_rsc_config = true;
             }
             continue;
         }
@@ -503,14 +509,14 @@ void PROJECT::clear() {
     trickle_up_pending = false;
     project_files_downloaded_time = 0;
     last_rpc_time = 0;
-    
+
     statistics.clear();
     safe_strcpy(venue, "");
     njobs_success = 0;
     njobs_error = 0;
     elapsed_time = 0;
     safe_strcpy(external_cpid, "");
-    
+
     flag_for_delete = false;
 }
 
@@ -630,6 +636,7 @@ RESULT::RESULT() {
 }
 
 int RESULT::parse(XML_PARSER& xp) {
+    int i;
     while (!xp.get_tag()) {
         if (xp.match_tag("/result")) {
             // if CPU time is nonzero but elapsed time is zero,
@@ -668,7 +675,10 @@ int RESULT::parse(XML_PARSER& xp) {
         if (xp.parse_double("final_cpu_time", final_cpu_time)) continue;
         if (xp.parse_double("final_elapsed_time", final_elapsed_time)) continue;
         if (xp.parse_int("state", state)) continue;
-        if (xp.parse_int("scheduler_state", scheduler_state)) continue;
+        if (xp.parse_int("scheduler_state", i)) {
+            scheduler_state = (SCHEDULER_STATE)i;
+            continue;
+        }
         if (xp.parse_int("exit_status", exit_status)) continue;
         if (xp.parse_int("signal", signal)) continue;
         if (xp.parse_int("active_task_state", active_task_state)) continue;
@@ -724,7 +734,7 @@ void RESULT::clear() {
     final_cpu_time = 0;
     final_elapsed_time = 0;
     state = 0;
-    scheduler_state = 0;
+    scheduler_state = CPU_SCHED_UNINITIALIZED;
     exit_status = 0;
     signal = 0;
     //stderr_out.clear();
@@ -792,6 +802,7 @@ int FILE_TRANSFER::parse(XML_PARSER& xp) {
         if (xp.parse_double("next_request_time", next_request_time)) continue;
         if (xp.parse_int("status", status)) continue;
         if (xp.parse_double("time_so_far", time_so_far)) continue;
+        if (xp.parse_double("estimated_xfer_time_remaining", estimated_xfer_time_remaining)) continue;
         if (xp.parse_double("last_bytes_xferred", bytes_xferred)) continue;
         if (xp.parse_double("file_offset", file_offset)) continue;
         if (xp.parse_double("xfer_speed", xfer_speed)) continue;
@@ -817,6 +828,7 @@ void FILE_TRANSFER::clear() {
     next_request_time = 0;
     status = 0;
     time_so_far = 0;
+    estimated_xfer_time_remaining = 0;
     bytes_xferred = 0;
     file_offset = 0;
     xfer_speed = 0;
@@ -1218,8 +1230,6 @@ int ACCT_MGR_INFO::parse(XML_PARSER& xp) {
         if (xp.parse_string("acct_mgr_name", acct_mgr_name)) continue;
         if (xp.parse_string("acct_mgr_url", acct_mgr_url)) continue;
         if (xp.parse_bool("have_credentials", have_credentials)) continue;
-        if (xp.parse_bool("cookie_required", cookie_required)) continue;
-        if (xp.parse_string("cookie_failure_url", cookie_failure_url)) continue;
     }
     return ERR_XML_PARSE;
 }
@@ -1228,8 +1238,6 @@ void ACCT_MGR_INFO::clear() {
     acct_mgr_name = "";
     acct_mgr_url = "";
     have_credentials = false;
-    cookie_required = false;
-    cookie_failure_url = "";
 }
 
 ACCT_MGR_RPC_REPLY::ACCT_MGR_RPC_REPLY() {
@@ -1288,7 +1296,6 @@ int PROJECT_INIT_STATUS::parse(XML_PARSER& xp) {
         if (xp.parse_string("url", url)) continue;
         if (xp.parse_string("name", name)) continue;
         if (xp.parse_string("team_name", team_name)) continue;
-        if (xp.parse_string("setup_cookie", setup_cookie)) continue;
         if (xp.parse_bool("has_account_key", has_account_key)) continue;
         if (xp.parse_bool("embedded", embedded)) continue;
     }
@@ -1299,7 +1306,6 @@ void PROJECT_INIT_STATUS::clear() {
     url.clear();
     name.clear();
     team_name.clear();
-    setup_cookie.clear();
     has_account_key = false;
     embedded = false;
 }
@@ -1381,9 +1387,7 @@ void ACCOUNT_IN::clear() {
     user_name.clear();
     passwd.clear();
     team_name.clear();
-    server_cookie.clear();
     ldap_auth = false;
-    server_assigned_cookie = false;
     consented_to_terms = false;
 }
 
@@ -1413,7 +1417,7 @@ CC_STATUS::CC_STATUS() {
 
 int CC_STATUS::parse(XML_PARSER& xp) {
     while (!xp.get_tag()) {
-        if (xp.match_tag("/cc_status")) return 0; 
+        if (xp.match_tag("/cc_status")) return 0;
         if (xp.parse_int("network_status", network_status)) continue;
         if (xp.parse_bool("ams_password_error", ams_password_error)) continue;
         if (xp.parse_bool("manager_must_quit", manager_must_quit)) continue;
@@ -1465,7 +1469,7 @@ int RPC_CLIENT::exchange_versions(string client_name, VERSION_INFO& server) {
     char buf[256];
     RPC rpc(this);
 
-    sprintf(buf,
+    snprintf(buf, sizeof(buf),
         "<exchange_versions>\n"
         "   <major>%d</major>\n"
         "   <minor>%d</minor>\n"
@@ -1480,7 +1484,6 @@ int RPC_CLIENT::exchange_versions(string client_name, VERSION_INFO& server) {
 
     retval = rpc.do_rpc(buf);
     if (!retval) {
-        memset(&server, 0, sizeof(server));
         while (rpc.fin.fgets(buf, 256)) {
             if (match_tag(buf, "</server_version>")) break;
             else if (parse_int(buf, "<major>", server.major)) continue;
@@ -1511,7 +1514,7 @@ int RPC_CLIENT::get_results(RESULTS& t, bool active_only) {
 
     t.clear();
 
-    sprintf(buf, "<get_results>\n<active_only>%d</active_only>\n</get_results>\n",
+    snprintf(buf, sizeof(buf), "<get_results>\n<active_only>%d</active_only>\n</get_results>\n",
         active_only?1:0
     );
     retval = rpc.do_rpc(buf);
@@ -1840,7 +1843,7 @@ int RPC_CLIENT::project_attach_from_file() {
 }
 
 int RPC_CLIENT::project_attach(
-    const char* url, const char* auth, const char* name
+    const char* url, const char* auth, const char* name, const char* email_addr
 ) {
     int retval;
     SET_LOCALE sl;
@@ -1852,8 +1855,9 @@ int RPC_CLIENT::project_attach(
         "  <project_url>%s</project_url>\n"
         "  <authenticator>%s</authenticator>\n"
         "  <project_name>%s</project_name>\n"
+        "  <email_addr>%s</email_addr>\n"
         "</project_attach>\n",
-        url, auth, name
+        url, auth, name, email_addr
     );
     buf[sizeof(buf)-1] = 0;
 
@@ -1891,7 +1895,7 @@ int RPC_CLIENT::set_run_mode(int mode, double duration) {
     char buf[256];
     RPC rpc(this);
 
-    snprintf(buf, sizeof(buf), 
+    snprintf(buf, sizeof(buf),
         "<set_run_mode>\n"
         "%s\n"
         "  <duration>%f</duration>\n"
@@ -1979,6 +1983,71 @@ int RPC_CLIENT::run_benchmarks() {
     return rpc.parse_reply();
 }
 
+// start or stop a graphics app on behalf of the screensaver.
+// (needed for Mac OS X 10.15+)
+//
+// <operation can be "run", "runfullscreen" or "stop"
+// operand is slot number (for run or runfullscreen) or pid (for stop)
+// if slot = -1, start the default screensaver
+// screensaverLoginUser is the login name of the user running the screensaver
+//
+// Graphics apps run by Manager write files in slot directory as logged
+// in user, not boinc_master. To tell BOINC client to fix all ownerships
+// in the slot directory, use operation "stop", slot number for operand
+// and empty string for screensaverLoginUser after the graphics app stops.
+//
+int RPC_CLIENT::run_graphics_app(
+    const char *operation, int& operand, const char *screensaverLoginUser
+) {
+    char buf[256];
+    SET_LOCALE sl;
+    RPC rpc(this);
+    int thePID = -1;
+    bool test = false;
+
+    snprintf(buf, sizeof(buf), "<run_graphics_app>\n");
+
+    if (!strcmp(operation, "run")) {
+        snprintf(buf, sizeof(buf),
+            "<run_graphics_app>\n<slot>%d</slot>\n<run/>\n<ScreensaverLoginUser>%s</ScreensaverLoginUser>\n",
+            operand, screensaverLoginUser
+        );
+    } else if (!strcmp(operation, "runfullscreen")) {
+        snprintf(buf, sizeof(buf),
+            "<run_graphics_app>\n<slot>%d</slot>\n<runfullscreen/>\n<ScreensaverLoginUser>%s</ScreensaverLoginUser>\n",
+            operand, screensaverLoginUser
+        );
+    } else if (!strcmp(operation, "stop")) {
+        snprintf(buf, sizeof(buf),
+            "<run_graphics_app>\n<graphics_pid>%d</graphics_pid>\n<stop/>\n<ScreensaverLoginUser>%s</ScreensaverLoginUser>\n",
+            operand, screensaverLoginUser
+        );
+    } else if (!strcmp(operation, "test")) {
+        snprintf(buf, sizeof(buf),
+            "<run_graphics_app>\n<graphics_pid>%d</graphics_pid>\n<test/>\n",
+            operand
+        );
+        test = true;
+    } else {
+        operand = -1;
+        return -1;
+    }
+    safe_strcat(buf, "</run_graphics_app>\n");
+    int retval = rpc.do_rpc(buf);
+    if (retval) {
+        operand = -1;
+    } else if (test) {
+        while (rpc.fin.fgets(buf, 256)) {
+            if (match_tag(buf, "</run_graphics_app>")) break;
+            if (parse_int(buf, "<graphics_pid>", thePID)) {
+                operand = thePID;
+                continue;
+            }
+        }
+    }
+    return retval;
+}
+
 int RPC_CLIENT::set_proxy_settings(GR_PROXY_INFO& procinfo) {
     int retval;
     SET_LOCALE sl;
@@ -1996,8 +2065,8 @@ int RPC_CLIENT::set_proxy_settings(GR_PROXY_INFO& procinfo) {
         "        <socks_server_name>%s</socks_server_name>\n"
         "        <socks_server_port>%d</socks_server_port>\n"
         "        <socks5_user_name>%s</socks5_user_name>\n"
-        "        <socks5_user_passwd>%s</socks5_user_passwd>\n"		
-        "        <socks5_remote_dns>%d</socks5_remote_dns>\n"		
+        "        <socks5_user_passwd>%s</socks5_user_passwd>\n"
+        "        <socks5_remote_dns>%d</socks5_remote_dns>\n"
 		"        <no_proxy>%s</no_proxy>\n"
         "    </proxy_info>\n"
         "</set_proxy_settings>\n",
@@ -2197,6 +2266,17 @@ int RPC_CLIENT::set_host_info(HOST_INFO& h) {
     return rpc.parse_reply();
 }
 
+int RPC_CLIENT::reset_host_info() {
+    SET_LOCALE sl;
+    RPC rpc(this);
+    char buf[1024];
+
+    snprintf(buf, sizeof(buf), "<reset_host_info>\n</reset_host_info>\n");
+    int retval = rpc.do_rpc(buf);
+    if (retval) return retval;
+    return rpc.parse_reply();
+}
+
 int RPC_CLIENT::quit() {
     int retval;
     SET_LOCALE sl;
@@ -2333,15 +2413,11 @@ int RPC_CLIENT::lookup_account(ACCOUNT_IN& ai) {
         "   <email_addr>%s</email_addr>\n"
         "   <passwd_hash>%s</passwd_hash>\n"
         "   <ldap_auth>%d</ldap_auth>\n"
-		"   <server_assigned_cookie>%d</server_assigned_cookie>\n"
-		"   <server_cookie>%s</server_cookie>\n"
         "</lookup_account>\n",
         ai.url.c_str(),
         ai.email_addr.c_str(),
         passwd_hash.c_str(),
-        ai.ldap_auth?1:0,
-		ai.server_assigned_cookie?1:0,
-	    ai.server_cookie.c_str()
+        ai.ldap_auth?1:0
     );
     buf[sizeof(buf)-1] = 0;
 
@@ -2623,7 +2699,7 @@ int RPC_CLIENT::set_cc_config(CC_CONFIG& config, LOG_FLAGS& log_flags) {
     MIOFILE mf;
     int retval;
     RPC rpc(this);
-    
+
     mf.init_buf_write(buf, sizeof(buf));
     config.write(mf, log_flags);
 

@@ -24,9 +24,4 @@
         <user_friendly_name>Intel 64-bit Mac OS 10.5 or later</user_friendly_name>
     </platform>
 
-    <app>
-        <name>{args.appname}</name>
-        <user_friendly_name>{args.appname}</user_friendly_name>
-    </app>
-
 </boinc>

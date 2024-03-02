@@ -141,9 +141,9 @@ function show_forum_header($user) {
     // Search
     echo '
         <td>
-        <input type="hidden" name="search_max_time" value="30">
+        <input type="hidden" name="search_max_time" value="0">
         <input type="hidden" name="search_forum" value="-1">
-        <input type="hidden" name="search_sort" value="5">
+        <input type="hidden" name="search_sort" value="'.CREATE_TIME_NEW.'">
         <input type="text" class="" name="search_keywords">
         <input class="btn btn-primary btn-sm" title="'.tra("Search for words in forum messages").'" type="submit" value="'.tra("Search forums").'"><br>
         <small><a href="forum_search.php">'.tra("Advanced search").'</a></small>
@@ -184,8 +184,8 @@ function show_forum_title($category, $forum, $thread, $link_thread=false) {
         echo "</span>";
     } else if ($forum && $thread) {
         echo "<span class=title>
-            <a href=\"$top_url\">$where</a> : 
-            <a href=\"forum_forum.php?id=".$forum->id."\">", $forum->title, "</a> : 
+            <a href=\"$top_url\">$where</a> :
+            <a href=\"forum_forum.php?id=".$forum->id."\">", $forum->title, "</a> :
         ";
         if ($link_thread) {
             echo "<a href=forum_thread.php?id=$thread->id>";
@@ -244,7 +244,7 @@ function page_links($url, $nitems, $items_per_page, $start){
     $postshow = 3;
 
     $x = "";
-    
+
     if ($nitems <= $items_per_page) return "";
     $npages = ceil($nitems / $items_per_page);
     $curpage = ceil($start / $items_per_page);
@@ -437,7 +437,7 @@ function show_posts(
             $post, $thread, $forum, $logged_in_user, $start, $latest_viewed,
             FORUM_CONTROLS, $filter
         );
-        
+
         if ($post->timestamp > $latest_shown_timestamp) {
             $latest_shown_timestamp = $post->timestamp;
         }
@@ -515,10 +515,6 @@ function show_post(
     global $country_to_iso3166_2;
 
     $user = BoincUser::lookup_id($post->user);
-    BoincForumPrefs::lookup($user);
-    if (is_banished($user) && !is_moderator($logged_in_user, $forum)) {
-        return;
-    }
 
     // If the user no longer exists, skip the post
     //
@@ -527,6 +523,11 @@ function show_post(
     }
 
     $config = get_config();
+    BoincForumPrefs::lookup($user);
+    if (is_banished($user) && !is_moderator($logged_in_user, $forum)) {
+        return;
+    }
+
     $no_forum_rating = parse_bool($config, "no_forum_rating");
 
     $tokens = "";
@@ -574,7 +575,7 @@ function show_post(
             $is_posted_by_special = true;
         }
     }
-    
+
     // Highlight special users if set in prefs;
     //
     if ($logged_in_user && $logged_in_user->prefs){
@@ -604,7 +605,7 @@ function show_post(
         }
     }
     echo "<p> </p>";
-    
+
     $url = "pm.php?action=new&amp;userid=".$user->id;
     $name = $user->name;
     show_button_small($url, tra("Send message"), tra("Send %1 a private message",$name));
@@ -613,7 +614,7 @@ function show_post(
     if (!isset($user->nposts)) {
         $user->nposts = BoincPost::count("user=$user->id");
     }
-    
+
     if (function_exists('project_forum_user_info')){
         project_forum_user_info($user);
     } else {
@@ -754,6 +755,11 @@ function show_post_and_context($post, $thread, $forum, $options, $n) {
     $content = output_transform($post->content, $options);
     $when = time_diff_str($post->timestamp, time());
     $user = BoincUser::lookup_id($post->user);
+    if (!$user){
+        return;
+    }
+
+    $config = get_config();
     $title = cleanup_title($thread->title);
     if ($post->hidden) {
         $deleted = "<br><font color=red>[".tra("Hidden by a moderator")."]</font>";
@@ -848,9 +854,9 @@ function post_warning($forum=null) {
     }
 
     $x .= "
-        <font size=-2>
-        ".tra("Rules:").post_rules()."
-        </font>
+        <small>
+        ".post_rules()."
+        </small>
         </td></tr></table>
     ";
     return $x;
@@ -1080,7 +1086,7 @@ function get_forum_threads(
     //if (! (is_numeric($forumID) && is_numeric($min) && is_numeric($nRec))) {
     //    return NULL;  // Something is wrong here.
     //}
-        
+
     $sql = 'forum = ' . $forumID ;
     $stickysql = "";
     if ($sticky){
@@ -1165,7 +1171,7 @@ function get_thread_posts($threadid, $sort_style, $show_hidden) {
 function show_post_moderation_links(
     $config, $logged_in_user, $post, $forum, $tokens
 ){
-    $moderators_allowed_to_ban = parse_bool($config, "moderators_allowed_to_ban"); 
+    $moderators_allowed_to_ban = parse_bool($config, "moderators_allowed_to_ban");
     $moderators_vote_to_ban = parse_bool($config, "moderators_vote_to_ban");
 
     if ($post->hidden) {
@@ -1322,6 +1328,7 @@ function show_thread_and_context($thread, $user) {
     if (!$thread_forum) return;
     if (!is_forum_visible_to_user($thread_forum, $user)) return;
     $owner = BoincUser::lookup_id($thread->owner);
+    if (!$owner) return;
     echo "<tr><td>\n";
     switch($thread_forum->parent_type) {
     case 0:

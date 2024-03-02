@@ -1,6 +1,6 @@
 // This file is part of BOINC.
 // http://boinc.berkeley.edu
-// Copyright (C) 2012 University of California
+// Copyright (C) 2022 University of California
 //
 // BOINC is free software; you can redistribute it and/or modify it
 // under the terms of the GNU Lesser General Public License
@@ -20,10 +20,6 @@
 #else
 #include "config.h"
 #include <math.h>
-#endif
-
-#ifdef _MSC_VER
-#define snprintf _snprintf
 #endif
 
 #include "str_replace.h"
@@ -80,12 +76,12 @@ void RESULT::clear() {
     intops_cumulative = 0;
     _state = RESULT_NEW;
     exit_status = 0;
-    stderr_out = "";
+    stderr_out.clear();
     suspended_via_gui = false;
     coproc_missing = false;
     report_immediately = false;
     not_started = false;
-    name_md5 = "";
+    name_md5.clear();
     index = 0;
     app = NULL;
     wup = NULL;
@@ -108,6 +104,7 @@ void RESULT::clear() {
 //
 int RESULT::parse_server(XML_PARSER& xp) {
     FILE_REF file_ref;
+    int retval;
 
     clear();
     while (!xp.get_tag()) {
@@ -119,7 +116,14 @@ int RESULT::parse_server(XML_PARSER& xp) {
         if (xp.parse_str("plan_class", plan_class, sizeof(plan_class))) continue;
         if (xp.parse_int("version_num", version_num)) continue;
         if (xp.match_tag("file_ref")) {
-            file_ref.parse(xp);
+            retval = file_ref.parse(xp);
+            if (retval) {
+                msg_printf(0, MSG_INFO,
+                    "can't parse file_ref in result: %s",
+                    boincerror(retval)
+                );
+                return retval;
+            }
             output_files.push_back(file_ref);
             continue;
         }
@@ -139,6 +143,7 @@ int RESULT::parse_server(XML_PARSER& xp) {
 //
 int RESULT::parse_state(XML_PARSER& xp) {
     FILE_REF file_ref;
+    int retval;
 
     clear();
     while (!xp.get_tag()) {
@@ -164,7 +169,14 @@ int RESULT::parse_state(XML_PARSER& xp) {
             continue;
         }
         if (xp.match_tag("file_ref")) {
-            file_ref.parse(xp);
+            retval = file_ref.parse(xp);
+            if (retval) {
+                msg_printf(0, MSG_INFO,
+                    "can't parse file_ref in result: %s",
+                    boincerror(retval)
+                );
+                return retval;
+            }
 #ifndef SIM
             output_files.push_back(file_ref);
 #endif
@@ -340,7 +352,7 @@ static const char* cpu_string(double ncpus) {
     return (ncpus==1)?"CPU":"CPUs";
 }
 
-int RESULT::write_gui(MIOFILE& out) {
+int RESULT::write_gui(MIOFILE& out, bool check_resources) {
     out.printf(
         "<result>\n"
         "    <name>%s</name>\n"
@@ -392,9 +404,7 @@ int RESULT::write_gui(MIOFILE& out) {
     if (atp) {
         atp->write_gui(out);
     }
-    if (!strlen(resources)) {
-        // only need to compute this string once
-        //
+    if (!strlen(resources) || check_resources) { // update resource string only when zero or when app_config is updated.
         if (avp->gpu_usage.rsc_type) {
             if (avp->gpu_usage.usage == 1) {
                 snprintf(resources, sizeof(resources),
@@ -414,7 +424,7 @@ int RESULT::write_gui(MIOFILE& out) {
             }
         } else if (avp->missing_coproc) {
             snprintf(resources, sizeof(resources),
-                "%.3g %s + %s GPU (missing)",
+                "%.3g %s + %.12s GPU (missing)",
                 avp->avg_ncpus,
                 cpu_string(avp->avg_ncpus),
                 avp->missing_coproc_name
@@ -429,6 +439,7 @@ int RESULT::write_gui(MIOFILE& out) {
             safe_strcpy(resources, " ");
         }
     }
+    // update app version resources
     if (strlen(resources)>1) {
         char buf[256];
         safe_strcpy(buf, "");
@@ -443,7 +454,7 @@ int RESULT::write_gui(MIOFILE& out) {
                     safe_strcpy(buf, n>1?" (devices ":" (device ");
                     for (int i=0; i<n; i++) {
                         char buf2[256];
-                        sprintf(buf2, "%d", cp.device_nums[coproc_indices[i]]);
+                        snprintf(buf2, sizeof(buf2), "%d", cp.device_nums[coproc_indices[i]]);
                         if (i > 0) {
                             safe_strcat(buf, ", ");
                         }
@@ -640,7 +651,8 @@ double RESULT::estimated_runtime() {
 double RESULT::estimated_runtime_remaining() {
     if (computing_done()) return 0;
     ACTIVE_TASK* atp = gstate.lookup_active_task_by_result(this);
-    if (app->non_cpu_intensive) {
+    if (non_cpu_intensive()) {
+        // the following is questionable
         if (atp && atp->fraction_done>0) {
             double est_dur = atp->fraction_done_elapsed_time / atp->fraction_done;
             double x = est_dur - atp->elapsed_time;
@@ -649,6 +661,7 @@ double RESULT::estimated_runtime_remaining() {
         }
         return 0;
     }
+    if (sporadic()) return 0;
 
     if (atp) {
 #ifdef SIM

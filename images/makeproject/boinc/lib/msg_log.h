@@ -1,6 +1,6 @@
 // This file is part of BOINC.
 // http://boinc.berkeley.edu
-// Copyright (C) 2008 University of California
+// Copyright (C) 2023 University of California
 //
 // BOINC is free software; you can redistribute it and/or modify it
 // under the terms of the GNU Lesser General Public License
@@ -21,9 +21,7 @@
 #include <cstdio>
 #include <cstdarg>
 
-#ifdef _USING_FCGI_
-#include "boinc_fcgi.h"
-#endif
+#include "boinc_stdio.h"
 
 // the __attribute((format...)) tags are GCC extensions that let the compiler
 // do like-checking on printf-like arguments
@@ -75,6 +73,7 @@ protected:
 // See lib/msg_log.C for commentary
 //
 #if _MSC_VER >= 1300
+#pragma warning(push)
 #pragma warning(disable: 4512) // assignment operator could not be generated
 #endif
 
@@ -94,7 +93,7 @@ public:
 };
 
 #if _MSC_VER >= 1300
-#pragma warning(default: 4512) // assignment operator could not be generated
+#pragma warning(pop)
 #endif
 
 #ifdef _USING_FCGI_

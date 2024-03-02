@@ -1,8 +1,8 @@
-#!/bin/bash
+#!/bin/zsh
 
 # This file is part of BOINC.
 # http://boinc.berkeley.edu
-# Copyright (C) 2017 University of California
+# Copyright (C) 2023 University of California
 #
 # BOINC is free software; you can redistribute it and/or modify it
 # under the terms of the GNU Lesser General Public License
@@ -39,6 +39,7 @@
 # Updated 1/6/16 for curl 7.46.0, openssl 1.0.2e, sqlite 3.9.2, FreeType-2.6.2
 # Updated 3/2/16 for curl 7.47.1, openssl 1.0.2g, sqlite 3.11.0
 # Updated 9/10/16 for c-ares 1.11.0, curl 7.50.2, openssl 1.1.0
+# Updated 6/25/23 to download inflate libraries if needed
 #
 # Download these seven packages and place them in a common parent directory
 # with the BOINC source tree.
@@ -64,7 +65,6 @@ caresOK="NO"
 curlOK="NO"
 opensslOK="NO"
 wxWidgetsOK="NO"
-sqlite3OK="NO"
 freetypeOK="NO"
 ftglOK="NO"
 finalResult=0
@@ -73,6 +73,50 @@ SCRIPT_DIR=`pwd`
 
 # this will pull in the variables used below
 source "${SCRIPT_DIR}/dependencyNames.sh"
+
+# Dowload and expand libraries if needed
+for rootName in "openssl" "cares" "curl" "wxWidgets" "freetype" "ftgl"
+do
+    dirVar="${rootName}DirName"
+    fileVar="${rootName}FileName"
+    urlVar="${rootName}URL"
+    # Test whether shell is zsh or bash
+    if [ -z "${BASH_VERSINFO}" ]; then
+        # zsh commands
+        dirName="${(P)dirVar}"
+        fileName="${(P)fileVar}"
+        URLString="${(P)urlVar}"
+    else
+        # bash commands
+        dirName="${!dirVar}"
+        fileName="${!fileVar}"
+        URLString="${!urlVar}"
+    fi
+
+    cd ../../
+    echo
+    if [ -d "${dirName}" ]; then
+    echo `pwd`"/${dirName}"" already present"
+    else
+        if [ -e "${fileName}" ]; then
+            echo `pwd`"/""${fileName}"" already present"
+        else
+            echo "Downloading ""${fileName}"" to "`pwd`"/"
+            curl -L -O "${URLString}"
+            echo
+        fi
+            echo "Expanding ""${fileName}"" to ""${dirName}" in `pwd`"/"
+        tar -xf "${fileName}"
+        if [ $? -ne 0 ]; then
+            echo;echo "**************************************"
+            echo "ERROR: can't expand " "${dirName}"
+            echo "**************************************";echo
+            cd "${SCRIPT_DIR}"
+            return 1
+        fi
+    fi
+    cd "${SCRIPT_DIR}"
+done
 
 echo ""
 echo "----------------------------------"
@@ -133,22 +177,6 @@ if [  $? -eq 0 ]; then
     source "${SCRIPT_DIR}/buildWxMac.sh" ${cleanit}
     if [  $? -eq 0 ]; then
         wxWidgetsOK="YES"
-    fi
-fi
-
-cd "${SCRIPT_DIR}"
-
-echo ""
-echo "----------------------------------"
-echo "---------- BUILD sqlite ----------"
-echo "----------------------------------"
-echo ""
-
-cd "../../${sqliteDirName}"
-if [  $? -eq 0 ]; then
-    source "${SCRIPT_DIR}/buildsqlite3.sh" ${cleanit}
-    if [  $? -eq 0 ]; then
-        sqlite3OK="YES"
     fi
 fi
 
@@ -232,18 +260,6 @@ if [ "${wxWidgetsOK}" = "NO" ]; then
     echo ""
 
     finalResult=$[ finalResult | 8 ]
-fi
-
-if [ "${sqlite3OK}" = "NO" ]; then
-    echo ""
-    echo "----------------------------------"
-    echo "------------ WARNING -------------"
-    echo "------------         -------------"
-    echo "-- COULD NOT BUILD ${sqliteDirName} -"
-    echo "----------------------------------"
-    echo ""
-
-    finalResult=$[ finalResult | 16 ]
 fi
 
 if [ "${freetypeOK}" = "NO" ]; then

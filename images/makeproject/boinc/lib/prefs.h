@@ -1,6 +1,6 @@
 // This file is part of BOINC.
 // http://boinc.berkeley.edu
-// Copyright (C) 2008 University of California
+// Copyright (C) 2022 University of California
 //
 // BOINC is free software; you can redistribute it and/or modify it
 // under the terms of the GNU Lesser General Public License
@@ -59,6 +59,9 @@ struct GLOBAL_PREFS_MASK {
     bool net_end_hour;
     bool net_start_hour;
     bool network_wifi_only;
+    bool niu_cpu_usage_limit;
+    bool niu_max_ncpus_pct;
+    bool niu_suspend_cpu_usage;
     bool ram_max_used_busy_frac;
     bool ram_max_used_idle_frac;
     bool run_if_user_active;
@@ -71,8 +74,14 @@ struct GLOBAL_PREFS_MASK {
     bool work_buf_additional_days;
     bool work_buf_min_days;
 
-    GLOBAL_PREFS_MASK();
-    void clear();
+    GLOBAL_PREFS_MASK(int){}
+    void clear() {
+        static const GLOBAL_PREFS_MASK x(0);
+        *this = x;
+    }
+    GLOBAL_PREFS_MASK() {
+        clear();
+    }
     bool are_prefs_set();
     bool are_simple_prefs_set();
     void set_all();
@@ -104,11 +113,10 @@ struct TIME_SPAN {
 struct WEEK_PREFS {
     TIME_SPAN days[7];
 
+    WEEK_PREFS() {}
     void clear() {
-        memset(this, 0, sizeof(WEEK_PREFS));
-    }
-    WEEK_PREFS() {
-        clear();
+        static const WEEK_PREFS init;
+        *this = init;
     }
 
     void set(int day, double start, double end);
@@ -128,18 +136,18 @@ struct TIME_PREFS : public TIME_SPAN {
         start_hour = start;
         end_hour = end;
     }
-    
+
     void clear();
     bool suspended(double t);
-    
+
 };
 
 
 struct GLOBAL_PREFS {
     double mod_time;
 
-    double battery_charge_min_pct;
-    double battery_max_temperature;
+    double battery_charge_min_pct;      // Android
+    double battery_max_temperature;     // Android
     bool confirm_before_connecting;
     double cpu_scheduling_period_minutes;
         // length of a time slice.
@@ -167,6 +175,9 @@ struct GLOBAL_PREFS {
         // not on public cell networks.
         // CAUTION: this only applies to file transfers.
         // scheduler RPCs are made regardless of this preference.
+    double niu_cpu_usage_limit;
+    double niu_max_ncpus_pct;
+    double niu_suspend_cpu_usage;
     double ram_max_used_busy_frac;
     double ram_max_used_idle_frac;
     bool run_gpu_if_user_active;
@@ -201,6 +212,7 @@ struct GLOBAL_PREFS {
     inline double cpu_scheduling_period() {
         return cpu_scheduling_period_minutes*60;
     }
+    static double parse_mod_time(const char*);
 };
 
 #endif

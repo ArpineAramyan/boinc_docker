@@ -8,7 +8,7 @@ bin_PROGRAMS =
 # Stuff needed for server builds goes here.
 if ENABLE_SERVER
 
-serverbindir = $(prefix)/lib/boinc-server-maker/lib
+serverbindir = $(libexecdir)/boinc-server-maker/lib
 serverbin_PROGRAMS = crypt_prog parse_test
 
 endif
@@ -18,7 +18,6 @@ endif
 if ENABLE_LIBRARIES
 
 libfcgi_sources = \
-    boinc_fcgi.cpp \
     coproc.cpp \
     filesys.cpp \
     hostinfo.cpp \
@@ -102,7 +101,8 @@ mac_sources = \
     mac/QMachOImage.c \
     mac/QMachOImageList.c \
     mac/QSymbols.c \
-    mac/QTaskMemory.c
+    mac/QTaskMemory.c \
+    mac/mac_branding.cpp
 mac_headers = \
     mac/dyld_gdb.h \
     mac/mac_backtrace.h \
@@ -112,7 +112,8 @@ mac_headers = \
     mac/QMachOImage.h \
     mac/QMachOImageList.h \
     mac/QSymbols.h \
-    mac/QTaskMemory.h
+    mac/QTaskMemory.h \
+    mac/mac_branding.h
 win_sources=
 win_headers=
 else # !(OS_WIN32 || OS_MAC)
@@ -129,13 +130,12 @@ mac_headers=
 endif
 endif
 
-
 if INSTALL_HEADERS
 pkginclude_HEADERS = \
     app_ipc.h \
     average.h \
     base64.h \
-    boinc_fcgi.h \
+    boinc_stdio.h \
     cal_boinc.h \
     cc_config.h \
     cert_sig.h \
@@ -159,10 +159,12 @@ pkginclude_HEADERS = \
     opencl_boinc.h \
     parse.h \
     prefs.h \
+    proc_control.h \
     procinfo.h \
     proxy_info.h \
     sched_msgs.h \
     stackwalker_imports.h \
+    str_replace.h \
     str_util.h \
     url.h \
     util.h \
@@ -173,22 +175,24 @@ endif
 # These are used internally and are not meant to be installed
 noinst_HEADERS = \
     msg_queue.h \
-    proc_control.h \
-    procinfo.h \
     shmem.h \
-    str_replace.h \
     synch.h \
     unix_util.h
 
 lib_LTLIBRARIES = libboinc.la
+pkgconfig_DATA = libboinc.pc
 libboinc_la_SOURCES = $(generic_sources) $(mac_sources) $(win_sources)
 libboinc_la_CFLAGS = $(AM_CFLAGS) $(PICFLAGS) $(PTHREAD_CFLAGS)
 libboinc_la_CXXFLAGS = $(AM_CXXFLAGS) $(PICFLAGS) $(PTHREAD_CFLAGS)
 libboinc_la_LDFLAGS = -static -version-number $(LIBBOINC_VERSION)
+if OS_FREEBSD
+libboinc_la_LDFLAGS += -lexecinfo
+endif
 libboinc_la_LIBADD =
 
 if ENABLE_BOINCCRYPT
 lib_LTLIBRARIES += libboinc_crypt.la
+pkgconfig_DATA += libboinc_crypt.pc
 libboinc_crypt_la_SOURCES = crypt.cpp
 libboinc_crypt_la_CFLAGS = $(AM_CFLAGS) $(PICFLAGS) $(PTHREAD_CFLAGS) $(SSL_CFLAGS)
 libboinc_crypt_la_CXXFLAGS = $(AM_CXXFLAGS) $(PICFLAGS) $(PTHREAD_CFLAGS) $(SSL_CXXFLAGS)
@@ -198,6 +202,7 @@ endif
 
 if ENABLE_FCGI
 lib_LTLIBRARIES += libboinc_fcgi.la
+pkgconfig_DATA += libboinc_fcgi.pc
 libboinc_fcgi_la_SOURCES = $(libfcgi_sources) $(mac_sources) $(win_sources)
 libboinc_fcgi_la_CFLAGS = -D_USING_FCGI_ $(AM_CFLAGS) $(PICFLAGS) $(PTHREAD_CFLAGS)
 libboinc_fcgi_la_CXXFLAGS = -D_USING_FCGI_ $(AM_CXXFLAGS) $(PICFLAGS) $(PTHREAD_CFLAGS)
@@ -244,7 +249,7 @@ $(LIBBOINC_FCGI_STATIC): libboinc_fcgi.la
 	$(LN) .libs/$(LIBBOINC_FCGI_STATIC) .
 
 clean: clean-am
-	rm -f $(LIBBOINC_STATIC) $(LIBBOINC_CRYPT_STATIC) $(LIBBOINC_FCGI_STATIC) *.gcno *.gcda *.gcov
+	rm -f $(LIBBOINC_STATIC) $(LIBBOINC_CRYPT_STATIC) $(LIBBOINC_FCGI_STATIC) *.gcno *.gcda *.gcov *.a *.o *.lo *.la
 
 endif
 # end of "if ENABLE_LIBRARIES"

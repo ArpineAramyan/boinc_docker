@@ -59,7 +59,7 @@ fi
 
 (cd html/ops && ./db_schemaversion.php > ${PROJECT_ROOT}/db_revision)
 
-bin/xadd
-yes | bin/update_versions
+#bin/xadd
+#yes | bin/update_versions
 
 touch $PROJECT_ROOT/.built_${PROJECT}

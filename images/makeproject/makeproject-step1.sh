@@ -31,8 +31,8 @@ mkdir $PROJECT_ROOT/html/stats_archive
 SECRETS=/run/secrets
 
 # code signing and upload keys
-mv $PROJECT_ROOT/keys $SECRETS
-ln -s $SECRETS/keys $PROJECT_ROOT
+#mv $PROJECT_ROOT/keys $SECRETS
+#ln -s $SECRETS/keys $PROJECT_ROOT
 
 # ops password
 mkdir -p $SECRETS/html/ops

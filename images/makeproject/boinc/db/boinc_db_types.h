@@ -1,6 +1,6 @@
 // This file is part of BOINC.
 // http://boinc.berkeley.edu
-// Copyright (C) 2012 University of California
+// Copyright (C) 2023 University of California
 //
 // BOINC is free software; you can redistribute it and/or modify it
 // under the terms of the GNU Lesser General Public License
@@ -24,6 +24,7 @@
 #include "opencl_boinc.h"
 #include "parse.h"
 #include "wslinfo.h"
+#include "hostinfo.h"
 
 // Sizes of text buffers in memory, corresponding to database BLOBs.
 // The following is for regular blobs, 64KB
@@ -202,15 +203,14 @@ struct USER {
     int seti_last_result_time;      // time of last result (UNIX)
     double seti_total_cpu;          // number of CPU seconds
     char signature[256];
-        // deprecated as of 9/2004 - may be used as temp
-        // currently used to store a nonce ID while email address
-        // is being verified.
+        // stores invite code, if any, for users created via RPC
     bool has_profile;
     char cross_project_id[256];
         // the "internal" cross-project ID;
         // the "external CPID" that  gets exported to stats sites
         // is MD5(cpid, email)
     char passwd_hash[256];
+        // MD5(password, email_addr)
     bool email_validated;           // deprecated
     int donated;
     char login_token[32];
@@ -279,7 +279,7 @@ struct HOST {
 
     // all remaining items are assigned by the client
     int timezone;           // local STANDARD time at host - UTC time
-                            // (in seconds) 
+                            // (in seconds)
     char domain_name[256];
     char serialnum[256];    // textual description of coprocessors
     char last_ip_addr[256]; // internal IP address as of last RPC
@@ -367,7 +367,7 @@ struct HOST {
     // but not stored in the DB
     // TODO: move this stuff to a derived class HOST_SCHED
     //
-    char p_features[1024];
+    char p_features[P_FEATURES_SIZE];
     char virtualbox_version[256];
     bool p_vm_extensions_disabled;
     int num_opencl_cpu_platforms;
@@ -489,7 +489,7 @@ struct WORKUNIT {
         // without consensus (i.e. WU is nondeterministic)
     char result_template_file[64];
     int priority;
-    char mod_time[16];
+    char mod_time[20];
     double rsc_bandwidth_bound;
         // send only to hosts with at least this much download bandwidth
     DB_ID_TYPE fileset_id;
@@ -582,7 +582,8 @@ struct CREDITED_JOB {
 #define ANON_PLATFORM_CPU     -2
 #define ANON_PLATFORM_NVIDIA  -3
 #define ANON_PLATFORM_ATI     -4
-#define ANON_PLATFORM_INTEL   -5
+#define ANON_PLATFORM_INTEL_GPU   -5
+#define ANON_PLATFORM_APPLE_GPU   -6
 
 struct RESULT {
     DB_ID_TYPE id;
@@ -618,7 +619,7 @@ struct RESULT {
     int exit_status;                // application exit status, if any
     DB_ID_TYPE teamid;
     int priority;
-    char mod_time[16];
+    char mod_time[20];
     double elapsed_time;
         // AKA runtime; returned by 6.10+ clients
     double flops_estimate;

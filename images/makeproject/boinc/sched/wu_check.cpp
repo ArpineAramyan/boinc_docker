@@ -71,7 +71,9 @@ int handle_result(DB_RESULT& result) {
         );
         return 1;
     }
-    get_file_path(wu, path);
+    if (get_file_path(wu, path)) { // no input files
+        return 0;
+    }
     f = fopen(path, "r");
     if (f) {
         fclose(f);
@@ -144,7 +146,7 @@ int main(int argc, char** argv) {
         config.db_name, config.db_host, config.db_user, config.db_passwd
     );
     if (retval) {
-        printf("boinc_db.open: %s\n", boincerror(retval));
+        printf("boinc_db.open failed: %s\n", boinc_db.error_string());
         exit(1);
     }
 

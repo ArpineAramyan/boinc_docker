@@ -31,30 +31,30 @@
 // upload_max_filesize = 64M
 // post_max_size = 64M
 
-error_reporting(E_ALL);
-ini_set('display_errors', true);
-ini_set('display_startup_errors', true);
-
 require_once("../inc/sandbox.inc");
 require_once("../inc/submit_db.inc");
+require_once("../inc/submit_util.inc");
 
-function list_files($user, $err_msg) {
+display_errors();
+
+function list_files($user, $notice) {
     $dir = sandbox_dir($user);
     $d = opendir($dir);
     if (!$d) error_page("Can't open sandbox directory");
-    page_head("File sandbox for $user->name");
+    page_head("File sandbox");
+    if ($notice) {
+        echo "<p>$notice<hr>";
+    }
     echo "
+        <p>
         <form action=sandbox.php method=post ENCTYPE=\"multipart/form-data\">
         <input type=hidden name=action value=upload_file>
-        Upload a file to your sandbox:
-        <p><input size=80 type=file name=\"new_file[]\" multiple=\"multiple\">
-        <p> <input class=\"btn btn-default\" type=submit value=Upload>
+        Upload files to your sandbox:
+        <p><p><input size=80 type=file name=\"new_file[]\" multiple=\"multiple\">
+        <p> <input class=\"btn btn-success\" type=submit value=Upload>
         </form>
         <hr>
     ";
-    if (strcmp($err_msg,"")!=0){
-        echo "<p>$err_msg<hr>";
-    }
     $files = array();
     while (($f = readdir($d)) !== false) {
         if ($f == '.') continue;
@@ -115,28 +115,28 @@ function upload_file($user) {
         $md5 = md5_file($tmp_name);
         $s = stat($tmp_name);
         $size = $s['size'];
-        list($exist, $elf) = sandbox_lf_exist($user, $md5);
-        if ($exist){
-            $notice .= "<strong>Notice:</strong> Invalid Upload<br/>";
-            $notice .= "You are trying to upload file  <strong>$name</strong><br/>";
-            $notice .= "Another file <strong>$elf</strong> with the same content (md5: $md5) already exists!<br/>";
-        } else {
+        [$exists, $elf] = sandbox_lf_exists($user, $md5);
+        if (!$exists){
             // move file to download dir
             //
             $phys_path = sandbox_physical_path($user, $md5);
-            rename($tmp_name, $phys_path);
-
-            // write link file
-            //
-            $dir = sandbox_dir($user);
-            $link_path = "$dir/$name";
-            sandbox_write_link_file($link_path, $size, $md5);
-            $notice .= "Successfully uploaded file <strong>$name</strong>!<br/>";
+            move_uploaded_file($tmp_name, $phys_path);
         }
+
+        // write link file
+        //
+        $dir = sandbox_dir($user);
+        $link_path = "$dir/$name";
+        sandbox_write_link_file($link_path, $size, $md5);
+        $notice .= "Uploaded file <strong>$name</strong><br/>";
     }
     list_files($user, $notice);
 }
 
+// delete a link to a file.
+// check if currently being used by a batch.
+// If the last link w/ that contents, delete the file itself
+//
 function delete_file($user) {
     $name = get_str('name');
     $dir = sandbox_dir($user);
@@ -146,18 +146,21 @@ function delete_file($user) {
     }
     $p = sandbox_physical_path($user, $md5);
     if (!is_file($p)) {
-        error_page("no such physical file");
+        error_page("physical file is missing");
     }
     $bused = sandbox_file_in_use($user, $name);
     if ($bused){
         $notice = "<strong>$name</strong> is being used by batch(es), you can not delete it now!<br/>";
-    } else{ 
-        $notice = "<strong>$name</strong> is not being used by any batch(es) and successfully deleted from your sandbox<br/>";
+    } else{
         unlink("$dir/$name");
-        unlink($p);
-    
+        $notice = "<strong>$name</strong> was deleted from your sandbox<br/>";
+        [$exists, $elf] = sandbox_lf_exists($user, $md5);
+        if (!$exists) {
+            unlink($p);
+        }
+
     }
-    list_files($user,$notice);
+    list_files($user, $notice);
     //Header("Location: sandbox.php");
 }
 function download_file($user) {
@@ -186,9 +189,7 @@ function view_file($user) {
 }
 
 $user = get_logged_in_user();
-//print_r($user);
-$user_submit = BoincUserSubmit::lookup_userid($user->id);
-if (!$user_submit) error_page("no job submission access");
+if (!submit_permissions($user)) error_page("no job submission access");
 
 $action = get_str('action', true);
 if (!$action) $action = post_str('action', true);

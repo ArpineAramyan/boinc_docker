@@ -102,6 +102,7 @@ struct LOG_FLAGS {
     bool scrsave_debug;
     bool slot_debug;
         // allocation of slots
+    bool sporadic_debug;
     bool state_debug;
         // print textual summary of CLIENT_STATE initially
         // and after each scheduler RPC and garbage collect
@@ -119,9 +120,13 @@ struct LOG_FLAGS {
     bool unparsed_xml;
         // show unparsed XML lines
     bool work_fetch_debug;
-        // work fetch policy 
+        // work fetch policy
 
-    LOG_FLAGS();
+    LOG_FLAGS() {
+        task = true;
+        file_xfer = true;
+        sched_ops = true;
+    }
     void init();
     int parse(XML_PARSER&);
     void show();
@@ -139,8 +144,14 @@ struct EXCLUDE_GPU {
 };
 
 // if you add anything here, add it to
-// defaults(), parse_options(), parse_options_client(), write(),
-// and possibly show()
+// lib/cc_config.cpp:
+//      defaults()
+//      parse_options()
+//      write()
+// client/log_flags.cpp:
+//      parse_options_client()
+//      possibly show()
+// the web doc: https://boinc.berkeley.edu/wiki/Client_configuration
 //
 struct CC_CONFIG {
     bool abort_jobs_on_exit;
@@ -149,6 +160,7 @@ struct CC_CONFIG {
     bool allow_remote_gui_rpc;
     std::vector<std::string> alt_platforms;
     COPROCS config_coprocs;
+    std::string device_name;
     bool disallow_attach;
     bool dont_check_file_sizes;
     bool dont_contact_ref_site;
@@ -165,15 +177,16 @@ struct CC_CONFIG {
     bool fetch_on_update;
     std::string force_auth;
     bool http_1_0;
-    int http_transfer_timeout_bps;
     int http_transfer_timeout;
+    int http_transfer_timeout_bps;
     std::vector<int> ignore_gpu_instance[NPROC_TYPES];
+    std::vector<std::string> ignore_tty;
     bool lower_client_priority;
     int max_event_log_lines;
     int max_file_xfers;
     int max_file_xfers_per_project;
-    int max_stderr_file_size;
-    int max_stdout_file_size;
+    double max_stderr_file_size;
+    double max_stdout_file_size;
     int max_tasks_reported;
     int ncpus;
     bool no_alt_platform;
@@ -181,16 +194,17 @@ struct CC_CONFIG {
     bool no_info_fetch;
     bool no_opencl;
     bool no_priority_change;
+    bool no_rdp_check;
     bool os_random_only;
-    int process_priority;
+    int process_priority;       // values in common_defs.h
     int process_priority_special;
     PROXY_INFO proxy_info;
     double rec_half_life;
     bool report_results_immediately;
     bool run_apps_manually;
     int save_stats_days;
-    bool skip_cpu_benchmarks;
     bool simple_gui_only;
+    bool skip_cpu_benchmarks;
     double start_delay;
     bool stderr_head;
     bool suppress_net_info;
@@ -224,6 +238,7 @@ struct APP_CONFIG {
     bool fraction_done_exact;
     bool report_results_immediately;
 
+    APP_CONFIG(){}
     int parse(XML_PARSER&, MSG_VEC&, LOG_FLAGS&);
     int parse_gpu_versions(XML_PARSER&, MSG_VEC&, LOG_FLAGS&);
 };
@@ -235,6 +250,7 @@ struct APP_VERSION_CONFIG {
     double avg_ncpus;
     double ngpus;
 
+    APP_VERSION_CONFIG(){}
     int parse(XML_PARSER&, MSG_VEC&, LOG_FLAGS&);
 };
 

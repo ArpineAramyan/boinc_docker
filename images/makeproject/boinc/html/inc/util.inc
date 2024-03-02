@@ -1,7 +1,7 @@
 <?php
 // This file is part of BOINC.
 // http://boinc.berkeley.edu
-// Copyright (C) 2008 University of California
+// Copyright (C) 2021 University of California
 //
 // BOINC is free software; you can redistribute it and/or modify it
 // under the terms of the GNU Lesser General Public License
@@ -20,11 +20,6 @@
 // Stuff that's not web-specific (e.g. that's used in non-web scripts)
 // should go in util_basic.inc
 
-
-error_reporting(E_ALL);
-ini_set('display_errors', true);
-ini_set('display_startup_errors', true);
-
 require_once("../inc/util_basic.inc");
 require_once("../project/project.inc");
 require_once("../inc/countries.inc");
@@ -34,7 +29,7 @@ require_once("../inc/translation.inc");
 require_once("../inc/profile.inc");
 require_once("../inc/bootstrap.inc");
 
-// parse some stuff from config.xml (do it here for efficiency)
+// parse config.xml (do it here for efficiency)
 //
 $config = get_config();
 global $master_url;
@@ -42,28 +37,21 @@ $master_url = parse_config($config , "<master_url>");
 $recaptcha_public_key = parse_config($config, "<recaptcha_public_key>");
 $recaptcha_private_key = parse_config($config, "<recaptcha_private_key>");
 
-// the following default to on
-//
+// Set parameters to defaults if not defined in config.xml
+
 $x = parse_config($config, "<user_country>");
 define('USER_COUNTRY', ($x===null)?1:(int)$x);
 
 $x = parse_config($config, "<user_url>");
 define('USER_URL', ($x===null)?1:(int)$x);
 
-// don't allow /... at the end of URL
-//
-if (array_key_exists("PATH_INFO", $_SERVER)) {
-    die("bad URL");
-}
+// Set parameters to defaults if not defined in project.inc
 
-// define TIMEZONE in project.inc
-//
 if (defined('TIMEZONE')) {
     date_default_timezone_set(TIMEZONE);
 } else {
     date_default_timezone_set('UTC');
 }
-
 if (!defined('DISABLE_PROFILES')) {
     define('DISABLE_PROFILES', false);
 }
@@ -109,6 +97,18 @@ if (!defined('USER_HOME')) {
 if (!defined('POST_MAX_LINKS')) {
     define('POST_MAX_LINKS', 0);
 }
+if (!defined('DARK_MODE')) {
+    define('DARK_MODE', false);
+}
+if (!defined('VALIDATE_EMAIL_TO_POST')) {
+    define('VALIDATE_EMAIL_TO_POST', false);
+}
+
+// don't allow anything between .php and ? in URL
+//
+if (array_key_exists("PATH_INFO", $_SERVER)) {
+    die("bad URL");
+}
 
 // sleep this long on any login failure
 // (slow the rate of hacker attacks)
@@ -122,6 +122,7 @@ $did_page_head = false;
 define('KILO', 1024);
 define('MEGA', 1024*KILO);
 define('GIGA', 1024*MEGA);
+define('TERA', 1024*GIGA);
 
 // return true if this page is HTTPS
 //
@@ -169,15 +170,22 @@ $got_logged_in_user = false;
 
 function get_logged_in_user($must_be_logged_in=true) {
     global $g_logged_in_user, $got_logged_in_user;
-    if ($got_logged_in_user) return $g_logged_in_user;
+    if ($got_logged_in_user) {
+        // this could have been called earlier with $must_be_logged_in false
+        if ($must_be_logged_in) {
+            if ($g_logged_in_user) return $g_logged_in_user;
+        } else {
+            return $g_logged_in_user;
+        }
+    }
 
     if (web_stopped()) return null;
 
     $authenticator = null;
     if (isset($_COOKIE['auth'])) $authenticator = $_COOKIE['auth'];
 
-    $authenticator = BoincDb::escape_string($authenticator);
     if ($authenticator) {
+        $authenticator = BoincDb::escape_string($authenticator);
         $g_logged_in_user = BoincUser::lookup("authenticator='$authenticator'");
     }
     if ($must_be_logged_in && !$g_logged_in_user) {
@@ -246,7 +254,7 @@ function page_head(
     if ($did_page_head) {
         return;
     }
-    
+
     $did_page_head = true;
     $url_base = url_base();
 
@@ -286,8 +294,29 @@ function page_head(
     echo "<title>$t</title>\n";
     echo '
         <meta charset="utf-8">
-        <link type="text/css" rel="stylesheet" href="'.secure_url_base().'/bootstrap.min.css" media="all">
     ';
+    if (DARK_MODE) {
+        echo <<<EOT
+<script>
+  if (window.matchMedia('(prefers-color-scheme: dark)').media === 'not all') {
+      console.log("foobar");
+    document.documentElement.style.display = 'none';
+    document.head.insertAdjacentHTML(
+        'beforeend',
+        '<link rel="stylesheet" href="sample_bootstrap.min.css" onload="document.documentElement.style.display = \'\'"><link rel="stylesheet" href="custom.css">'
+    );
+  }
+</script>
+<link rel="stylesheet" href="bootstrap_darkly.min.css" media="(prefers-color-scheme: dark)">
+<link rel="stylesheet" href="custom_dark.css" media="(prefers-color-scheme: dark)">
+<link rel="stylesheet" href="sample_bootstrap.min.css" media="(prefers-color-scheme: no-preference), (prefers-color-scheme: light)">
+<link rel="stylesheet" href="custom.css" media="(prefers-color-scheme: no-preference), (prefers-color-scheme: light)">
+EOT;
+    } else {
+        echo '
+            <link type="text/css" rel="stylesheet" href="'.secure_url_base().'/bootstrap.min.css" media="all">
+        ';
+    }
     if (defined('STYLESHEET')) {
         $stylesheet = $url_base.STYLESHEET;
         echo "
@@ -379,46 +408,46 @@ function error_page($msg) {
     exit();
 }
 
-// takes argument in second and returns a human formatted time string
-// in the form D days + h Hours + m Min + s sec.
+// convert time interval in seconds to a string of the form
+// 'D days h hours m min s sec'.
 
 function time_diff($x, $res=3) {
+    $x = (int)$x;
     $days    = (int)($x/86400);
     $hours   = (int)(($x-$days*86400)/3600);
     $minutes = (int)(($x-$days*86400-$hours*3600)/60);
-    $seconds = (int)($x % 60);
+    $seconds = $x % 60;
 
-    $datestring = "";
+    $s = "";
     if ($days) {
-        $datestring .= "$days ".tra("days")." ";
+        $s .= "$days ".tra("days")." ";
     }
-    if ($res>0 && ($hours || strlen($datestring))) {
-        $datestring .= "$hours ".tra("hours")." ";
+    if ($res>0 && ($hours || strlen($s))) {
+        $s .= "$hours ".tra("hours")." ";
     }
-    if ($res>1 && ($minutes || strlen($datestring))) {
-        $datestring .= "$minutes ".tra("min")." ";
+    if ($res>1 && ($minutes || strlen($s))) {
+        $s .= "$minutes ".tra("min")." ";
     }
-    if ($res>2 && ($seconds)) {
-        $datestring .= "$seconds ".tra("sec")." ";
+    if ($res>2) {
+        $s .= "$seconds ".tra("sec")." ";
     }
-
-    return $datestring;
+    return $s;
 }
 
 
 function date_str($x) {
     if ($x == 0) return "---";
-    return gmdate('j M Y', $x);
+    return gmdate('j M Y', (int)$x);
 }
 
 function time_str($x) {
     if ($x == 0) return "---";
-    return gmdate('j M Y, G:i:s', $x) . " UTC";
+    return gmdate('j M Y, G:i:s', (int)$x) . " UTC";
 }
 
 function local_time_str($x) {
     if ($x == 0) return "---";
-    return date('j M Y, H:i T', $x);
+    return date('j M Y, H:i T', (int)$x);
 }
 
 function pretty_time_str($x) {
@@ -660,7 +689,7 @@ function bbcode_info() {
 
 // strip slashes if magic quotes in effect
 function undo_magic_quotes($x) {
-    if (get_magic_quotes_gpc()) {
+    if (version_compare(PHP_VERSION, '5.4.0') < 0 && get_magic_quotes_gpc()) {
         return stripslashes($x);
     }
     return $x;
@@ -865,19 +894,23 @@ function current_url() {
 // @param text The text to display on the button
 // @param desc The title of the destination - typically used as a popup
 // @param class The optional CSS class of the button. Defaults to a standard button
+// @params extra Additional text in href tag
 //
 
-function button_text($url, $text, $desc=null, $class="btn-success btn-sm") {
+function button_text($url, $text, $desc=null, $class=null, $extra='') {
     if (!$desc) {
         $desc = $text;
     }
-    return sprintf(' <a href="%s" title="%s" class="btn %s">%s</a>',
-        $url, $desc, $class, $text
+    if (!$class) {
+        $class = "btn-success btn-sm";
+    }
+    return sprintf(' <a href="%s" title="%s" class="btn %s" %s>%s</a>',
+        $url, $desc, $class, $extra, $text
     );
 }
 
-function show_button($url, $text, $desc=null, $class="btn-success btn-sm") {
-    echo button_text($url, $text, $desc=null, $class);
+function show_button($url, $text, $desc=null, $class=null, $extra=null) {
+    echo button_text($url, $text, $desc, $class, $extra);
 }
 
 // for places with a bunch of buttons, like forum posts
@@ -949,6 +982,7 @@ function get_app_types() {
     $t->cuda = false;
     $t->ati = false;
     $t->intel_gpu = false;
+    $t->apple_gpu = false;
     $t->count = 0;
     $avs = BoincAppVersion::enum("deprecated=0");
     foreach ($avs as $av) {
@@ -967,6 +1001,9 @@ function get_app_types() {
         } else if (strstr($av->plan_class, "intel_gpu")) {
             $t->intel_gpu = true;
             $t->count++;
+        } else if (strstr($av->plan_class, "apple_gpu")) {
+            $t->apple_gpu = true;
+            $t->count++;
         } else {
             $t->cpu = true;
             $t->count++;
@@ -980,6 +1017,7 @@ function get_app_types() {
 // "next_url" arguments (must be local, not full URLs)
 //
 function sanitize_local_url($x) {
+    if (!$x) return $x;
     $x = trim($x, "/");
     if (strstr($x, "/")) return "";
     if (strstr($x, "<")) return "";
@@ -987,27 +1025,61 @@ function sanitize_local_url($x) {
     return $x;
 }
 
+function sanitize_user_url($x) {
+    // if protocol is given, must be http: or https:
+    $y = explode('//', $x);
+    switch (count($y)) {
+    case 1:
+        $z = $x;
+        break;
+    case 2:
+        $z = $y[1];
+        if (strtolower($y[0]) == 'http:') break;
+        if (strtolower($y[0]) == 'https:') break;
+        return '';
+    default: return '';
+    }
+    // everything else must be alphanumeric, or -_/.#?&=
+    if (preg_match('/^[-_.\/#?&=a-zA-Z0-9]*$/', $z)) {
+        return $x;
+    }
+    return '';
+}
+
 // strip HTML tags
 //
 function sanitize_tags($x) {
+    if (!$x) return $x;
     return strip_tags($x);
 }
 
 function sanitize_numeric($x) {
-    if (is_numeric($x)) {
-        return $x;
-    } else if (trim($x) == '' ) {
+    if (!$x || !is_numeric($x)) {
         return '';
-    } else {
-        return "not numeric";
     }
+    return $x;
 }
 
 function sanitize_email($x) {
+    if (!$x) return $x;
     if (function_exists('filter_var')) {
         return filter_var($x, FILTER_SANITIZE_EMAIL);
     } else {
         return strip_tags($x);
+    }
+}
+
+// pages like top_hosts.php, team_members.php etc. have a textual
+// "sort_by" argument.
+// Check this to avoid XSS vulnerability
+//
+function sanitize_sort_by($x) {
+    switch($x) {
+    case 'expavg_credit':
+    case 'total_credit':
+        return;
+    default:
+        error_page('bad sort_by');
     }
 }
 
@@ -1131,8 +1203,8 @@ function google_search_form($url) {
         <form method=get action=\"https://google.com/search\">
         <input type=hidden name=domains value=\"$url\">
         <input type=hidden name=sitesearch value=\"$url\">
-        <input class=small name=q size=20>
-        <input class=small type=submit value=".tra("Search").">
+        <input name=q size=20>
+        <input type=submit value=".tra("Search").">
         </form>
         </nobr>
     ";
@@ -1148,17 +1220,40 @@ function text_end() {
     echo "</div>\n";
 }
 
-// express a size in terms of GB or MB
+// express a size in terms of TB, GB etc.
 //
 function size_string($x) {
+    if ($x > TERA) {
+        return number_format($x/TERA, 2)." TB";
+    }
     if ($x > GIGA) {
         return number_format($x/GIGA, 2)." GB";
     }
-    return number_format($x/MEGA, 2)." MB";
+    if ($x > MEGA) {
+        return number_format($x/MEGA, 2)." MB";
+    }
+    if ($x > KILO) {
+        return number_format($x/KILO, 2)." KB";
+    }
+    return "$x bytes";
 }
 
 function cert_filename() {
     return defined("CERT_FILENAME")?CERT_FILENAME:"cert1.php";
+}
+
+// if user hasn't validated their email addr, tell them to
+//
+function check_validated_email($user) {
+    if (!$user->email_validated) {
+        page_head("Please validate your email address");
+        echo "
+            To post here, please
+            <a href=validate_email_addr.php>validate your email address<a>.
+        ";
+        page_tail();
+        exit;
+    }
 }
 
 $cvs_version_tracker[]="\$Id$";  //Generated automatically - do not edit

@@ -1,6 +1,6 @@
 // This file is part of BOINC.
 // http://boinc.berkeley.edu
-// Copyright (C) 2008 University of California
+// Copyright (C) 2020 University of California
 //
 // BOINC is free software; you can redistribute it and/or modify it
 // under the terms of the GNU Lesser General Public License
@@ -28,15 +28,21 @@
 #include "procinfo.h"
 
 #include "client_types.h"
+#include "result.h"
 
-// values for preempt_type
+// values for preempt_type (see ACTIVE_TASK::preempt())
 //
-#define REMOVE_NEVER        0
-#define REMOVE_MAYBE_USER   1
-#define REMOVE_MAYBE_SCHED  2
-#define REMOVE_ALWAYS       3
+enum PREEMPT_TYPE {
+    REMOVE_NEVER        = 0,
+        // don't remove from memory
+    REMOVE_MAYBE_USER   = 1,
+        // remove from mem if GPU; don't remove if never checkpointed
+    REMOVE_MAYBE_SCHED  = 2,
+        // ditto
+    REMOVE_ALWAYS       = 3
+        // remove from memory
+};
 
-struct CLIENT_STATE;
 struct ASYNC_COPY;
 typedef int PROCESS_ID;
 
@@ -78,6 +84,7 @@ struct ACTIVE_TASK {
     double peak_working_set_size;
     double peak_swap_size;
     double peak_disk_usage;
+        // based on real (not allocated/compressed) file sizes
 
     // START OF ITEMS ALSO SAVED IN CLIENT STATE FILE
 
@@ -105,15 +112,15 @@ struct ACTIVE_TASK {
         // first frac done reported during this run of task
     double first_fraction_done_elapsed_time;
         // elapsed time when the above was reported
-    int scheduler_state;
-    int next_scheduler_state; // temp
+    SCHEDULER_STATE scheduler_state;
+    SCHEDULER_STATE next_scheduler_state; // temp
     int signal;
     double run_interval_start_wall_time;
         // Wall time at the start of the current run interval
     double checkpoint_wall_time;
         // wall time at the last checkpoint
     double elapsed_time;
-        // current total elapsed (running) time
+        // current total running time, adjusted for CPU throttling
     double bytes_sent_episode;
         // bytes sent in current episode of job,
         // as (optionally) reported by boinc_network_usage()
@@ -143,7 +150,8 @@ struct ACTIVE_TASK {
         // rather, it means that the last time we did CPU scheduling,
         // the set of jobs we tried to run was too big,
         // and this one came after we ran out of mem.
-    bool needs_shmem;               // waiting for a free shared memory segment
+    bool needs_shmem;
+        // waiting for a free shared memory segment
     int want_network;
         // This task wants to do network comm (for F@h)
         // this is passed via share-memory message (app_status channel)
@@ -151,8 +159,10 @@ struct ACTIVE_TASK {
         // when we sent an abort message to this app
         // kill it 5 seconds later if it doesn't exit
     double quit_time;
-    int premature_exit_count;
         // when we sent a quit message; kill if still there after 10 sec
+    int premature_exit_count;
+        // how many times app has exited without finish file.
+        // abort job if 100 exits w/o checkpoint
     bool overdue_checkpoint;
         // running past end of time slice because not checkpointed;
         // when we do checkpoint, reschedule
@@ -173,17 +183,28 @@ struct ACTIVE_TASK {
     double finish_file_time;
         // time when we saw finish file in slot dir.
         // Used to kill apps that hang after writing finished file
+    int graphics_pid;
+        // PID of running graphics app (Mac)
+    SPORADIC_CA_STATE sporadic_ca_state;
+    SPORADIC_AC_STATE sporadic_ac_state;
+    double sporadic_ignore_until;
 
     void set_task_state(int, const char*);
     inline int task_state() {
         return _task_state;
     }
-
-#if (defined (__APPLE__) && (defined(__i386__) || defined(__x86_64__)))
-    // PowerPC apps emulated on i386 Macs crash if running graphics
-    int powerpc_emulated_on_i386;
-    int is_native_i386_app(char*);
-#endif
+    inline bool sporadic() {
+        return wup->app->sporadic;
+    }
+    inline bool non_cpu_intensive() {
+        return result->app->non_cpu_intensive;
+    }
+    inline bool always_run() {
+        return sporadic() || non_cpu_intensive();
+    }
+    inline bool dont_throttle() {
+        return result->dont_throttle();
+    }
     int request_reread_prefs();
     int request_reread_app_info();
     int link_user_files();
@@ -202,7 +223,9 @@ struct ACTIVE_TASK {
     void cleanup_task();
 
     int current_disk_usage(double&);
-        // disk used by output files and temp files of this task
+        // total sizes of output files and temp files of this task
+        // This is compared with project-specified limits
+        // to decide whether to abort job; no other use.
     int get_free_slot(RESULT*);
     int start(bool test=false);         // start a process
 
@@ -257,7 +280,7 @@ struct ACTIVE_TASK {
         // Done by sending it a <suspend> message
     int unsuspend(int reason=0);
         // Undo a suspend: send a <resume> message
-    int preempt(int preempt_type, int reason=0);
+    int preempt(PREEMPT_TYPE preempt_type, int reason=0);
         // preempt (via suspend or quit) a running task
     int resume_or_start(bool);
     void send_network_available();
@@ -276,7 +299,7 @@ struct ACTIVE_TASK {
     void get_graphics_msg();
     double est_dur();
     int read_stderr_file();
-    bool finish_file_present();
+    bool finish_file_present(int&);
     bool temporary_exit_file_present(double&, char*, bool&);
     void init_app_init_data(APP_INIT_DATA&);
     int write_app_init_file(APP_INIT_DATA&);
@@ -302,6 +325,7 @@ public:
     active_tasks_v active_tasks;
     ACTIVE_TASK* lookup_pid(int);
     ACTIVE_TASK* lookup_result(RESULT*);
+    ACTIVE_TASK* lookup_slot(int);
     void init();
     bool poll();
     void suspend_all(int reason);
@@ -328,6 +352,7 @@ public:
     void free_mem();
     bool slot_taken(int);
     void get_memory_usage();
+    void check_for_finished_jobs();
 
     void process_control_poll();
     void request_reread_prefs(PROJECT*);

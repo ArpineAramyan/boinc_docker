@@ -54,7 +54,25 @@ function job_file_name($md5) {
     return "jf_$md5";
 }
 
-function authenticate_user($r, $app) {
+// does user have submit permissions?
+//
+function submit_permissions($user) {
+    return BoincUserSubmit::lookup_userid($user->id);
+}
+
+// does user have submit permissions for given app?
+//
+function submit_permissions_app($user, $app) {
+    return BoincUserSubmitApp::lookup("user_id=$user->id and app_id=$app->id");
+}
+
+// check whether user has permissions for a remote job submission
+// or job file request.
+// $r is a request message that includes an 'authenticator' field
+// $app is the app being submitted to (or null if file op)
+// returns [user, UserSubmit], or give XML error
+//
+function check_remote_submit_permissions($r, $app) {
     $auth = (string)$r->authenticator;
     if (!$auth) {
         log_write("no authenticator");
@@ -66,13 +84,13 @@ function authenticate_user($r, $app) {
         log_write("bad authenticator");
         xml_error(-1, "bad authenticator");
     }
-    $user_submit = BoincUserSubmit::lookup_userid($user->id);
+    $user_submit = submit_permissions($user);
     if (!$user_submit) {
         log_write("no submit access");
         xml_error(-1, "no submit access");
     }
     if ($app && !$user_submit->submit_all) {
-        $usa = BoincUserSubmitApp::lookup("user_id=$user->id and app_id=$app->id");
+        $usa = submit_permissions_app($user, $app);
         if (!$usa) {
             log_write("no app submit access");
             xml_error(-1, "no app submit access");
@@ -130,13 +148,40 @@ function get_batch_params($batch, $wus) {
     return $batch;
 }
 
+// get the number of WUs for which we've sent at least 1 instance
+// TODO: do this more efficiently (single query)
+//
+function wus_nsent($wus) {
+    $n = 0;
+    foreach ($wus as $wu) {
+        $res = BoincResult::enum(
+            sprintf('workunitid=%d and server_state<>%d',
+                $wu->id, RESULT_SERVER_STATE_UNSENT
+            )
+        );
+        if (count($res) > 0) $n++;
+    }
+    return $n;
+}
+
 function get_outfile_names($result) {
-    $names = array();
+    $names = [];
     $xml = "<a>".$result->xml_doc_out."</a>";
     $r = simplexml_load_string($xml);
     if (!$r) return $names;
     foreach ($r->file_info as $fi) {
         $names[] = (string)($fi->name);
+    }
+    return $names;
+}
+
+function get_outfile_log_names($result) {
+    $names = [];
+    $xml = "<a>".$result->xml_doc_in."</a>";
+    $r = simplexml_load_string($xml);
+    if (!$r) return $names;
+    foreach ($r->result->file_ref as $fr) {
+        $names[] = (string)($fr->open_name);
     }
     return $names;
 }
@@ -181,6 +226,11 @@ function retire_batch($batch) {
         $wu->update(
             "assimilate_state=".ASSIMILATE_DONE.", transition_time=$now"
         );
+        // remove output template if it's a temporary
+        //
+        if (strstr($wu->result_template_file, "templates/tmp/")) {
+            @unlink($wu->result_template_file);
+        }
     }
     $batch->update("state=".BATCH_STATE_RETIRED);
 }
@@ -215,9 +265,7 @@ function batch_output_file_size($batchid) {
         foreach ($names as $name) {
             $path = dir_hier_path($name, $upload_dir, $fanout);
             if (is_file($path)) {
-                $s=stat($path);
-                $size=$s['size'];
-                $batch_td_size+=$size;
+                $batch_td_size += filesize($path);
             }
         }
     }

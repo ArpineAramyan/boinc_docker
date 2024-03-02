@@ -1,6 +1,6 @@
 // This file is part of BOINC.
 // https://boinc.berkeley.edu
-// Copyright (C) 2018 University of California
+// Copyright (C) 2023 University of California
 //
 // BOINC is free software; you can redistribute it and/or modify it
 // under the terms of the GNU Lesser General Public License
@@ -23,7 +23,6 @@
 #ifdef _WIN32
 #include "boinc_win.h"
 #endif
-#include "config.h"
 
 #if !defined(_WIN32) || defined (__CYGWIN__)
 #include <cstdio>
@@ -149,6 +148,7 @@ struct PROJECT {
     RSC_DESC rsc_desc_nvidia;
     RSC_DESC rsc_desc_ati;
     RSC_DESC rsc_desc_intel_gpu;
+    RSC_DESC rsc_desc_apple_gpu;
 
     double sched_priority;
 
@@ -263,7 +263,7 @@ struct RESULT {
     double final_cpu_time;
     double final_elapsed_time;
     int state;
-    int scheduler_state;
+    SCHEDULER_STATE scheduler_state;
     int exit_status;
     int signal;
     //std::string stderr_out;
@@ -312,6 +312,13 @@ struct RESULT {
     int parse(XML_PARSER&);
     void print();
     void clear();
+
+    bool is_not_started() const {
+        if (state >= RESULT_COMPUTE_ERROR) return false;
+        if (ready_to_report) return false;
+        if (active_task) return false;
+        return true;
+    }
 };
 
 struct FILE_TRANSFER {
@@ -330,6 +337,7 @@ struct FILE_TRANSFER {
     double next_request_time;
     int status;
     double time_so_far;
+    double estimated_xfer_time_remaining;
     double bytes_xferred;
     double file_offset;
     double xfer_speed;
@@ -494,9 +502,7 @@ struct ACCT_MGR_INFO {
     std::string acct_mgr_name;
     std::string acct_mgr_url;
     bool have_credentials;
-    bool cookie_required;
-    std::string cookie_failure_url;
-    
+
     ACCT_MGR_INFO();
 
     int parse(XML_PARSER&);
@@ -528,7 +534,6 @@ struct PROJECT_INIT_STATUS {
     std::string url;
     std::string name;
     std::string team_name;
-    std::string setup_cookie;
     bool has_account_key;
     bool embedded;
 
@@ -579,9 +584,7 @@ struct ACCOUNT_IN {
     std::string user_name;
     std::string passwd;
     std::string team_name;
-    std::string server_cookie;
     bool ldap_auth;
-    bool server_assigned_cookie;
     bool consented_to_terms;
 
     ACCOUNT_IN();
@@ -711,6 +714,7 @@ struct RPC_CLIENT {
     int set_network_mode(int mode, double duration);
     int get_screensaver_tasks(int& suspend_reason, RESULTS&);
     int run_benchmarks();
+    int run_graphics_app(const char *operation, int& operand, const char *screensaverLoginUser);
     int set_proxy_settings(GR_PROXY_INFO&);
     int get_proxy_settings(GR_PROXY_INFO&);
     int get_messages(int seqno, MESSAGES&, bool translatable=false);
@@ -721,6 +725,7 @@ struct RPC_CLIENT {
     int result_op(RESULT&, const char*);
     int get_host_info(HOST_INFO&);
     int set_host_info(HOST_INFO&);
+    int reset_host_info();
     int quit();
     int acct_mgr_info(ACCT_MGR_INFO&);
     const char* mode_name(int mode);
@@ -741,7 +746,8 @@ struct RPC_CLIENT {
     int create_account(ACCOUNT_IN&);
     int create_account_poll(ACCOUNT_OUT&);
     int project_attach(
-        const char* url, const char* auth, const char* project_name
+        const char* url, const char* auth, const char* project_name,
+        const char* email_addr  // optional - pass empty string if unknown
     );
     int project_attach_from_file();
     int project_attach_poll(PROJECT_ATTACH_REPLY&);
@@ -803,6 +809,6 @@ struct SET_LOCALE {
 };
 #endif
 
-extern int read_gui_rpc_password(char*);
+extern int read_gui_rpc_password(char*, std::string&);
 
 #endif // BOINC_GUI_RPC_CLIENT_H

@@ -1,6 +1,6 @@
 // This file is part of BOINC.
 // http://boinc.berkeley.edu
-// Copyright (C) 2019 University of California
+// Copyright (C) 2020 University of California
 //
 // BOINC is free software; you can redistribute it and/or modify it
 // under the terms of the GNU Lesser General Public License
@@ -16,10 +16,17 @@
 // along with BOINC.  If not, see <http://www.gnu.org/licenses/>.
 
 // Command-line program for creating jobs (workunits).
-// Used directly for local job submission;
+// Use directly for local job submission;
 // run from PHP script for remote job submission.
 //
-// see http://boinc.berkeley.edu/trac/wiki/JobSubmission
+// see https://github.com/BOINC/boinc/wiki/JobSubmission
+//
+// This program can be used in two ways:
+// - to create a single job, with everything passed on the cmdline
+// - to create multiple jobs, where per-job info is passed via stdin,
+//      one line per job
+//
+// The input files must already be staged (i.e. in the download hierarchy).
 
 #include "config.h"
 
@@ -87,16 +94,16 @@ void usage() {
         "   [ --wu_id ID ]   ID of existing workunit record (used by boinc_submit)\n"
         "   [ --wu_name name ]              default: generate a name based on app name\n"
         "   [ --wu_template filename ]      default: appname_in\n"
-        "\nSee http://boinc.berkeley.edu/trac/wiki/JobSubmission\n"
+        "\nSee https://github.com/BOINC/boinc/wiki/JobSubmission\n"
     );
     exit(1);
 }
 
 bool arg(char** argv, int i, const char* name) {
     char buf[256];
-    sprintf(buf, "-%s", name);
+    snprintf(buf, sizeof(buf), "-%s", name);
     if (!strcmp(argv[i], buf)) return true;
-    sprintf(buf, "--%s", name);
+    snprintf(buf, sizeof(buf), "--%s", name);
     if (!strcmp(argv[i], buf)) return true;
     return false;
 }
@@ -187,6 +194,8 @@ void JOB_DESC::parse_cmdline(int argc, char** argv) {
             assign_type = ASSIGN_USER;
             assign_id = atoi(argv[++i]);
             check_assign_id(assign_id);
+        } else if (arg(argv, i, (char*)"priority")) {
+            wu.priority = atoi(argv[++i]);
         } else {
             if (!strncmp("-", argv[i], 1)) {
                 fprintf(stderr, "create_work: bad stdin argument '%s'\n", argv[i]);
@@ -361,13 +370,13 @@ int main(int argc, char** argv) {
         usage();
     }
     if (!strlen(jd.wu.name)) {
-        sprintf(jd.wu.name, "%s_%d_%f", app.name, getpid(), dtime());
+        snprintf(jd.wu.name, sizeof(jd.wu.name), "%s_%d_%f", app.name, getpid(), dtime());
     }
     if (!strlen(jd.wu_template_file)) {
-        sprintf(jd.wu_template_file, "templates/%s_in", app.name);
+        snprintf(jd.wu_template_file, sizeof(jd.wu_template_file), "templates/%s_in", app.name);
     }
     if (!strlen(jd.result_template_file)) {
-        sprintf(jd.result_template_file, "templates/%s_out", app.name);
+        snprintf(jd.result_template_file, sizeof(jd.result_template_file), "templates/%s_out", app.name);
     }
 
     retval = config.parse_file(config_dir);
@@ -390,7 +399,7 @@ int main(int argc, char** argv) {
         exit(1);
     }
     boinc_db.set_isolation_level(READ_UNCOMMITTED);
-    sprintf(buf, "where name='%s'", app.name);
+    snprintf(buf, sizeof(buf), "where name='%s'", app.name);
     retval = app.lookup(buf);
     if (retval) {
         fprintf(stderr, "create_work: app not found\n");
@@ -408,6 +417,14 @@ int main(int argc, char** argv) {
         if (retval) {
             fprintf(stderr,
                 "create_work: can't open input template %s\n", jd.wu_template_file
+            );
+            exit(1);
+        }
+    } else {
+        if (!use_stdin) {
+            fprintf(stderr,
+                "create_work: input template file %s doesn't exist\n",
+                jd.wu_template_file
             );
             exit(1);
         }
@@ -433,11 +450,13 @@ int main(int argc, char** argv) {
                 char* p = fgets(buf, sizeof(buf), stdin);
                 if (p == NULL) break;
                 JOB_DESC jd2 = jd;
+                    // things default to what was passed on cmdline
                 strcpy(jd2.wu.name, "");
                 _argc = parse_command_line(buf, _argv);
                 jd2.parse_cmdline(_argc, _argv);
+                    // get info from stdin line
                 if (!strlen(jd2.wu.name)) {
-                    sprintf(jd2.wu.name, "%s_%d", jd.wu.name, j);
+                    snprintf(jd2.wu.name, sizeof(jd2.wu.name), "%s_%d", jd.wu.name, j);
                 }
                 if (strlen(jd2.wu_template_file)) {
                     get_wu_template(jd2);
@@ -461,7 +480,7 @@ int main(int argc, char** argv) {
                 _argc = parse_command_line(buf, _argv);
                 jd2.parse_cmdline(_argc, _argv);
                 if (!strlen(jd2.wu.name)) {
-                    sprintf(jd2.wu.name, "%s_%d", jd.wu.name, j);
+                    snprintf(jd2.wu.name, sizeof(jd2.wu.name), "%s_%d", jd.wu.name, j);
                 }
                 // if the stdin line specified assignment,
                 // create the job individually

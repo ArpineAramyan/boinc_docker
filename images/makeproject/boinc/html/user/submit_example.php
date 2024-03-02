@@ -38,9 +38,7 @@ require_once("../inc/submit_util.inc");
 require_once("../inc/util.inc");
 require_once("../project/project.inc");
 
-error_reporting(E_ALL);
-ini_set('display_errors', true);
-ini_set('display_startup_errors', true);
+display_errors();
 
 // hardwired app name for now
 define('APP_NAME', 'remote_test');
@@ -249,7 +247,7 @@ function form_to_request() {
     $req->app_name = APP_NAME;
     $req->batch_name = get_str('batch_name');
     $req->jobs = array();
-    
+
     $f = new StdClass;
     $f->source = $input_url;
     $f->mode = 'semilocal';
@@ -335,7 +333,7 @@ function handle_query_batch() {
         );
         break;
     }
-    
+
     echo "<h2>Jobs</h2>\n";
     start_table();
     table_header(
@@ -367,7 +365,7 @@ function handle_query_batch() {
 }
 
 // show the details of a job, including links to see the output files
-// 
+//
 function handle_query_job() {
     global $project, $auth;
     $req = new StdClass;

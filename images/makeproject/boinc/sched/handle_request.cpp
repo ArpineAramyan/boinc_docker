@@ -1,6 +1,6 @@
 // This file is part of BOINC.
 // http://boinc.berkeley.edu
-// Copyright (C) 2019 University of California
+// Copyright (C) 2023 University of California
 //
 // BOINC is free software; you can redistribute it and/or modify it
 // under the terms of the GNU Lesser General Public License
@@ -18,11 +18,7 @@
 // Handle a scheduling server RPC
 
 #include "config.h"
-#ifdef _USING_FCGI_
-#include "boinc_fcgi.h"
-#else
-#include <cstdio>
-#endif
+#include "boinc_stdio.h"
 #include <cassert>
 #include <cstdlib>
 #include <vector>
@@ -87,7 +83,7 @@ static bool find_host_by_other(DB_USER& user, HOST req_host, DB_HOST& host) {
     for (unsigned int i=0; i < config.dont_search_host_for_userid.size(); i++) {
         if (user.id == config.dont_search_host_for_userid[i]) {
             return false;
-        }    
+        }
     }
 
     // Only check if all the fields are populated
@@ -1418,10 +1414,12 @@ void process_request(char* code_sign_key) {
                 if (diff < config.min_sendwork_interval) {
                     ok_to_send_work = false;
                     log_messages.printf(MSG_NORMAL,
-                        "Not sending work - last request too recent: %f\n", diff
+                        "Not sending work. Last request too recent. Please wait %d seconds.\n",
+                        (int)(config.min_sendwork_interval - diff)
                     );
                     sprintf(buf,
-                        "Not sending work - last request too recent: %d sec", (int)diff
+                        "Not sending work. Last request too recent. Please wait %d seconds.\n",
+                        (int)(config.min_sendwork_interval - diff)
                     );
                     g_reply->insert_message(buf, "low");
 

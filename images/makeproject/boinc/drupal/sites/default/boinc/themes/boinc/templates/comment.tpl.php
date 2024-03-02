@@ -54,6 +54,7 @@
  * @see zen_process()
  */
 ?>
+
 <div class="<?php print $classes; ?> clearfix">
   <?php
     static $authors;
@@ -79,9 +80,12 @@
           ),
         NULL, 'boinc:coment-from-ignored-user');
       print '<div class="ignore-user-content">';
-    } 
+    }
     ?>
-  
+
+  <?php
+    $ddname = 'flag_abuse_reason-dropdown-comment-' . $comment->cid;
+  ?>
   <div class="user">
     <?php
       $account = user_load(array('uid' => $comment->uid));
@@ -153,7 +157,7 @@
     <div class="comment-id">
       <?php echo l(bts('Message @id', array('@id' => $comment->cid), NULL, 'boinc:message-header'),
         "goto/comment/{$comment->cid}"); ?>
-      <?php 
+      <?php
         if ($comment->pid):
           $parent = _comment_load($comment->pid);
           if ($parent->status == COMMENT_PUBLISHED) {
@@ -179,6 +183,15 @@
         <span class="label">)</span>
       </div>
     <?php endif; ?>
+    <div class="dropdown">
+      <div id="<?php print $ddname; ?>" class="dropdown-content">
+        <?php print flag_create_link('abuse_comment_1', $comment->cid); ?>
+        <?php print flag_create_link('abuse_comment_2', $comment->cid); ?>
+        <?php print flag_create_link('abuse_comment_3', $comment->cid); ?>
+        <?php print flag_create_link('abuse_comment_4', $comment->cid); ?>
+        <?php print flag_create_link('abuse_comment_5', $comment->cid); ?>
+      </div>
+    </div>
     <div class="content">
       <?php print $content; ?>
       <?php if ($signature AND $show_signatures): ?>

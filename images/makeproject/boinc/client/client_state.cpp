@@ -1,6 +1,6 @@
 // This file is part of BOINC.
 // http://boinc.berkeley.edu
-// Copyright (C) 2018 University of California
+// Copyright (C) 2022 University of California
 //
 // BOINC is free software; you can redistribute it and/or modify it
 // under the terms of the GNU Lesser General Public License
@@ -14,10 +14,6 @@
 //
 // You should have received a copy of the GNU Lesser General Public License
 // along with BOINC.  If not, see <http://www.gnu.org/licenses/>.
-
-#ifdef __APPLE__
-#include <Carbon/Carbon.h>
-#endif
 
 #ifdef _WIN32
 #include "boinc_win.h"
@@ -36,10 +32,6 @@
 #endif
 #endif
 
-#ifdef _MSC_VER
-#define snprintf _snprintf
-#endif
-
 #ifdef __EMX__
 #define INCL_DOS
 #include <os2.h>
@@ -51,6 +43,7 @@
 #include "parse.h"
 #include "str_replace.h"
 #include "str_util.h"
+#include "url.h"
 #include "util.h"
 #ifdef _WIN32
 #include "run_app_windows.h"
@@ -79,10 +72,8 @@ CLIENT_STATE gstate;
 COPROCS coprocs;
 
 #ifndef SIM
-#ifdef NEW_CPU_THROTTLE
-THREAD_LOCK client_mutex;
+THREAD_LOCK client_thread_mutex;
 THREAD throttle_thread;
-#endif
 #endif
 
 CLIENT_STATE::CLIENT_STATE()
@@ -128,6 +119,7 @@ CLIENT_STATE::CLIENT_STATE()
     safe_strcpy(client_brand, "");
     exit_after_app_start_secs = 0;
     app_started = 0;
+    cmdline_dir = false;
     exit_before_upload = false;
     run_test_app = false;
 #ifndef _WIN32
@@ -162,7 +154,7 @@ CLIENT_STATE::CLIENT_STATE()
     redirect_io = false;
     disable_graphics = false;
     cant_write_state_file = false;
-    ncpus = 1;
+    n_usable_cpus = 1;
     benchmarks_running = false;
     client_disk_usage = 0.0;
     total_disk_usage = 0.0;
@@ -194,6 +186,7 @@ CLIENT_STATE::CLIENT_STATE()
 #ifdef _WIN32
     have_sysmon_msg = false;
 #endif
+    have_sporadic_app = false;
 }
 
 void CLIENT_STATE::show_host_info() {
@@ -208,8 +201,8 @@ void CLIENT_STATE::show_host_info() {
         "Processor: %d %s %s",
         host_info.p_ncpus, host_info.p_vendor, host_info.p_model
     );
-    if (ncpus != host_info.p_ncpus) {
-        msg_printf(NULL, MSG_INFO, "Using %d CPUs", ncpus);
+    if (n_usable_cpus != host_info.p_ncpus) {
+        msg_printf(NULL, MSG_INFO, "Using %d CPUs", n_usable_cpus);
     }
 #if 0
     if (host_info.m_cache > 0) {
@@ -371,7 +364,7 @@ void CLIENT_STATE::set_now() {
 #ifdef _WIN32
     // On Win, check for evidence that we're awake after a suspension
     // (in case we missed the event announcing this)
-    // 
+    //
     if (os_requested_suspend) {
         if (x > now+10) {
             msg_printf(0, MSG_INFO, "Resuming after OS suspension");
@@ -430,7 +423,7 @@ static void set_client_priority() {
 #ifdef __linux__
     char buf[1024];
     snprintf(buf, sizeof(buf), "ionice -c 3 -p %d", getpid());
-    system(buf);
+    if (!system(buf)) {}
 #endif
 }
 
@@ -502,9 +495,10 @@ int CLIENT_STATE::init() {
 
     FILE* f = fopen(CLIENT_BRAND_FILENAME, "r");
     if (f) {
-        fgets(client_brand, sizeof(client_brand), f);
-        strip_whitespace(client_brand);
-        msg_printf(NULL, MSG_INFO, "Client brand: %s", client_brand);
+        if (fgets(client_brand, sizeof(client_brand), f)) {
+            strip_whitespace(client_brand);
+            msg_printf(NULL, MSG_INFO, "Client brand: %s", client_brand);
+        }
         fclose(f);
     }
 
@@ -590,10 +584,17 @@ int CLIENT_STATE::init() {
             coprocs.add(coprocs.intel_gpu);
         }
     }
+    if (coprocs.have_apple_gpu()) {
+        if (rsc_index(GPU_TYPE_APPLE)>0) {
+            msg_printf(NULL, MSG_INFO, "APPLE GPU info taken from cc_config.xml");
+        } else {
+            coprocs.add(coprocs.apple_gpu);
+        }
+    }
     coprocs.add_other_coproc_types();
-    
+
     host_info.coprocs = coprocs;
-    
+
     if (coprocs.none() ) {
         msg_printf(NULL, MSG_INFO, "No usable GPUs found");
     }
@@ -618,6 +619,10 @@ int CLIENT_STATE::init() {
     //
     parse_state_file();
 
+    if (app_test) {
+        app_test_init();
+    }
+
     bool new_client = is_new_client();
 
     // this follows parse_state_file() since we need to have read
@@ -631,7 +636,7 @@ int CLIENT_STATE::init() {
     //
     host_info.p_vm_extensions_disabled = false;
 
-    set_ncpus();
+    set_n_usable_cpus();
     show_host_info();
 
     // this follows parse_state_file() because that's where we read project names
@@ -650,7 +655,7 @@ int CLIENT_STATE::init() {
 
     // inform the user if there's a newer version of client
     // NOTE: this must be called AFTER
-    // read_vc_config_file()
+    // read_nvc_config_file()
     //
     newer_version_startup_check();
 
@@ -765,6 +770,16 @@ int CLIENT_STATE::init() {
     acct_mgr_info.init();
     project_init.init();
 
+    // if project_init.xml specifies an account, attach
+    //
+    if (strlen(project_init.url) && strlen(project_init.account_key)) {
+        add_project(
+            project_init.url, project_init.account_key, project_init.name, "",
+            false
+        );
+        project_init.remove();
+    }
+
     log_show_projects();    // this must follow acct_mgr_info.init()
 
     // set up for handling GUI RPCs
@@ -809,7 +824,7 @@ int CLIENT_STATE::init() {
 #endif
 
     http_ops->cleanup_temp_files();
-    
+
     // must parse env vars after parsing state file
     // otherwise items will get overwritten with state file info
     //
@@ -835,6 +850,11 @@ int CLIENT_STATE::init() {
         notices.init_rss();
     }
 
+    // check for jobs with finish files
+    // (i.e. they finished just as client was exiting)
+    //
+    active_tasks.check_for_finished_jobs();
+
     // warn user if some jobs need more memory than available
     //
     check_too_large_jobs();
@@ -843,10 +863,11 @@ int CLIENT_STATE::init() {
     //
     project_priority_init(false);
 
-#ifdef NEW_CPU_THROTTLE
-    client_mutex.lock();
+    client_thread_mutex.lock();
     throttle_thread.run(throttler, NULL);
-#endif
+
+    sporadic_init();
+
     initialized = true;
     return 0;
 }
@@ -885,9 +906,8 @@ void CLIENT_STATE::do_io_or_sleep(double max_time) {
         // otherwise do it for the remaining amount of time.
 
         double_to_timeval(have_async?0:time_remaining, tv);
-#ifdef NEW_CPU_THROTTLE
-        client_mutex.unlock();
-#endif
+        client_thread_mutex.unlock();
+
         if (all_fds.max_fd == -1) {
             boinc_sleep(time_remaining);
             n = 0;
@@ -899,9 +919,7 @@ void CLIENT_STATE::do_io_or_sleep(double max_time) {
             );
         }
         //printf("select in %d out %d\n", all_fds.max_fd, n);
-#ifdef NEW_CPU_THROTTLE
-        client_mutex.lock();
-#endif
+        client_thread_mutex.lock();
 
         // Note: curl apparently likes to have curl_multi_perform()
         // (called from net_xfers->got_select())
@@ -941,6 +959,7 @@ void CLIENT_STATE::do_io_or_sleep(double max_time) {
 // possibly triggering state transitions.
 // Returns true if something happened
 // (in which case should call this again immediately)
+// Called every POLL_INTERVAL (1 sec)
 //
 bool CLIENT_STATE::poll_slow_events() {
     int actions = 0, retval;
@@ -948,9 +967,6 @@ bool CLIENT_STATE::poll_slow_events() {
     static bool tasks_restarted = false;
     static bool first=true;
     double old_now = now;
-#ifdef __APPLE__
-    double idletime;
-#endif
 
     set_now();
 
@@ -984,15 +1000,13 @@ bool CLIENT_STATE::poll_slow_events() {
 #ifdef ANDROID
     user_active = device_status.user_active;
 #else
-    user_active = !host_info.users_idle(
-        check_all_logins, global_prefs.idle_time_to_run
-#ifdef __APPLE__
-         , &idletime
-#endif
-    );
+    long idle_time = host_info.user_idle_time(check_all_logins);
+    user_active = idle_time < global_prefs.idle_time_to_run * 60;
 #endif
 
     if (user_active != old_user_active) {
+        set_n_usable_cpus();
+            // if niu_max_ncpus_pct pref is set, # usable CPUs may change
         request_schedule_cpus(user_active?"Not idle":"Idle");
     }
 
@@ -1016,7 +1030,7 @@ bool CLIENT_STATE::poll_slow_events() {
     // If screensaver started client, this code tells client
     // to exit when user becomes active, accounting for all these factors.
     //
-    if (started_by_screensaver && (idletime < 30) && (getppid() == 1)) {
+    if (started_by_screensaver && (idle_time < 30) && (getppid() == 1)) {
         // pid is 1 if parent has exited
         requested_exit = true;
     }
@@ -1159,6 +1173,9 @@ bool CLIENT_STATE::poll_slow_events() {
     if (!network_suspended) {
         POLL_ACTION(scheduler_rpc          , scheduler_rpc_poll     );
     }
+    if (have_sporadic_app) {
+        sporadic_poll();
+    }
     retval = write_state_file_if_needed();
     if (retval) {
         msg_printf(NULL, MSG_INTERNAL_ERROR,
@@ -1189,21 +1206,22 @@ bool CLIENT_STATE::poll_slow_events() {
 
 #endif // ifndef SIM
 
-// See if the project specified by master_url already exists
-// in the client state record.  Ignore any trailing "/" characters
+// Find the project with the given master_url.
+// Ignore differences in protocol, case, and trailing /
 //
 PROJECT* CLIENT_STATE::lookup_project(const char* master_url) {
-    int len1, len2;
-    char *mu;
+    char buf[256];
 
-    len1 = (int)strlen(master_url);
-    if (master_url[strlen(master_url)-1] == '/') len1--;
+    safe_strcpy(buf, master_url);
+    canonicalize_master_url(buf, sizeof(buf));
+    char* p = strstr(buf, "//");
+    if (!p) return NULL;
 
     for (unsigned int i=0; i<projects.size(); i++) {
-        mu = projects[i]->master_url;
-        len2 = (int)strlen(mu);
-        if (mu[strlen(mu)-1] == '/') len2--;
-        if (!strncmp(master_url, projects[i]->master_url, max(len1,len2))) {
+        char* q = strstr(projects[i]->master_url, "//");
+        if (!q) continue;
+        if (!strcasecmp(p, q)) {
+            // note: canonicalize_master_url() doesn't lower-case
             return projects[i];
         }
     }
@@ -1265,6 +1283,9 @@ FILE_INFO* CLIENT_STATE::lookup_file_info(PROJECT* p, const char* name) {
 int CLIENT_STATE::link_app(PROJECT* p, APP* app) {
     if (lookup_app(p, app->name)) return ERR_NOT_UNIQUE;
     app->project = p;
+    if (!app->non_cpu_intensive) {
+        p->non_cpu_intensive = false;
+    }
     return 0;
 }
 
@@ -1315,11 +1336,7 @@ int CLIENT_STATE::link_app_version(PROJECT* p, APP_VERSION* avp) {
         }
 
         if (!strcmp(file_ref.open_name, GRAPHICS_APP_FILENAME)) {
-            char relpath[MAXPATHLEN], path[MAXPATHLEN];
-            get_pathname(fip, relpath, sizeof(relpath));
-            relative_to_absolute(relpath, path);
-            safe_strcpy(avp->graphics_exec_path, path);
-            safe_strcpy(avp->graphics_exec_file, fip->name);
+            avp->graphics_exec_fip = fip;
         }
 
         // any file associated with an app version must be signed
@@ -1434,7 +1451,8 @@ void CLIENT_STATE::print_summary() {
     }
     msg_printf(0, MSG_INFO, "%d persistent file xfers", (int)pers_file_xfers->pers_file_xfers.size());
     for (i=0; i<pers_file_xfers->pers_file_xfers.size(); i++) {
-        msg_printf(0, MSG_INFO, "    %s http op state: %d", pers_file_xfers->pers_file_xfers[i]->fip->name, (pers_file_xfers->pers_file_xfers[i]->fxp?pers_file_xfers->pers_file_xfers[i]->fxp->http_op_state:-1));
+        const PERS_FILE_XFER* pers_file_xfer = pers_file_xfers->pers_file_xfers[i];
+        msg_printf(0, MSG_INFO, "    %s http op state: %d", pers_file_xfer->fip->name, pers_file_xfer->fxp?pers_file_xfer->fxp->http_op_state:-1);
     }
     msg_printf(0, MSG_INFO, "%d active tasks", (int)active_tasks.active_tasks.size());
     for (i=0; i<active_tasks.active_tasks.size(); i++) {
@@ -1635,7 +1653,9 @@ bool CLIENT_STATE::garbage_collect_always() {
             }
             rp->output_files[i].file_info->ref_cnt++;
         }
-#ifndef SIM
+#ifdef SIM
+        (void)found_error;
+#else
         if (found_error) {
             // check for process still running; this can happen
             // e.g. if an intermediate upload fails
@@ -1807,7 +1827,7 @@ bool CLIENT_STATE::update_results() {
             break;
 #ifndef SIM
         case RESULT_FILES_DOWNLOADING:
-            if (input_files_available(rp, false) == 0) {
+            if (task_files_present(rp, false) == 0) {
                 if (rp->avp->app_files.size()==0) {
                     // if this is a file-transfer app, start the upload phase
                     //
@@ -1913,7 +1933,7 @@ int CLIENT_STATE::report_result_error(RESULT& res, const char* err_msg) {
     res.set_ready_to_report();
     res.completed_time = now;
 
-    sprintf(buf, "Unrecoverable error for task %s", res.name);
+    snprintf(buf, sizeof(buf), "Unrecoverable error for task %s", res.name);
 #ifndef SIM
     scheduler_op->project_rpc_backoff(res.project, buf);
 #endif
@@ -1938,7 +1958,7 @@ int CLIENT_STATE::report_result_error(RESULT& res, const char* err_msg) {
         // called from:
         // ACTIVE_TASK::start (if couldn't start app)
         // ACTIVE_TASK::restart (if files missing)
-        // ACITVE_TASK_SET::restart_tasks (catch other error returns)
+        // ACTIVE_TASK_SET::restart_tasks (catch other error returns)
         // ACTIVE_TASK::handle_exited_app (on nonzero exit or signal)
         // ACTIVE_TASK::abort_task (if exceeded resource limit)
         // CLIENT_STATE::schedule_cpus (catch-all for resume/start errors)
@@ -1955,7 +1975,7 @@ int CLIENT_STATE::report_result_error(RESULT& res, const char* err_msg) {
         //
         for (i=0; i<res.output_files.size(); i++) {
             if (res.output_files[i].file_info->had_failure(failnum)) {
-                sprintf(buf,
+                snprintf(buf, sizeof(buf),
                     "<upload_error>\n"
                     "    <file_name>%s</file_name>\n"
                     "    <error_code>%d</error_code>\n"
@@ -2300,7 +2320,7 @@ void CLIENT_STATE::log_show_projects() {
     for (unsigned int i=0; i<projects.size(); i++) {
         PROJECT* p = projects[i];
         if (p->hostid) {
-            sprintf(buf, "%d", p->hostid);
+            snprintf(buf, sizeof(buf), "%d", p->hostid);
         } else {
             safe_strcpy(buf, "not assigned yet");
         }

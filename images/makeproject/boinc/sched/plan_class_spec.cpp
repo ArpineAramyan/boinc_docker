@@ -1,6 +1,6 @@
 // This file is part of BOINC.
 // http://boinc.berkeley.edu
-// Copyright (C) 2012 University of California
+// Copyright (C) 2023 University of California
 //
 // BOINC is free software; you can redistribute it and/or modify it
 // under the terms of the GNU Lesser General Public License
@@ -16,15 +16,13 @@
 // along with BOINC.  If not, see <http://www.gnu.org/licenses/>.
 
 // Support for plan classes defined using an XML file.
-// See https://boinc.berkeley.edu/trac/wiki/AppPlanSpec
-
-// logic for handling an XML specification of plan classes
-// see https://boinc.berkeley.edu/trac/wiki/AppPlanConfig
+// See https://github.com/BOINC/boinc/wiki/AppPlanSpec
 
 #include <cmath>
 
 #include "util.h"
 #include "coproc.h"
+#include "hostinfo.h"
 
 #include "sched_config.h"
 #include "sched_customize.h"
@@ -32,7 +30,7 @@
 
 using std::string;
 
-// this returns a numerical OS version for Darwin/OSX and Windows,
+// return a numerical OS version for Darwin/OSX and Windows,
 // letting us define numerical ranges for these OS versions
 //
 static double os_version_num(HOST h) {
@@ -48,16 +46,51 @@ static double os_version_num(HOST h) {
         if (p && (sscanf(p, "(%u.%u.%u.%u)", &a, &b, &c, &d) == 4)) {
             return 100000000.0*a + 1000000.0*b + 100.0*c +d;
         }
-    } else if (strstr(h.os_name, "Android") || strstr(h.os_name, "Linux")) {
-        // example: 3.0.31-g6fb96c9
+    } else if (strstr(h.os_name, "Android")) {
+        // examples:
+        // 3.0.31-g6fb96c9
+        // 2.6.36.3
+        // 3.4.0
         //
         if (sscanf(h.os_version, "%u.%u.%u", &a, &b, &c) == 3) {
+            return 10000.*a + 100.*b + c;
+        }
+    } else if (strstr(h.os_name, "Linux")) {
+        // os_name seems to always contain "Linux".
+        // os_version is pretty diverse:
+        //
+        // Linux Mint 19 Tara [4.18.12-041812-generic|libc 2.27 (Ubuntu GLIBC 2.27-3ubuntu1)]
+        // CentOS Linux 7 (Core) [3.10.0-862.14.4.el7.x86_64|libc 2.17 (GNU libc)]
+        // Ubuntu 18.04.1 LTS [4.15.0-36-generic|libc 2.27 (Ubuntu GLIBC 2.27-3ubuntu1)]
+        // 3.13.0-103-generic
+        // 4.9.0-8-amd64
+        // Manjaro Linux [4.19.42-1-MANJARO|libc 2.29 (GNU libc)]
+
+        char* p = strchr(h.os_version, '[');
+        if (p) {
+            p++;
+        } else {
+            p = h.os_version;
+        }
+        if (sscanf(p, "%u.%u.%u", &a, &b, &c) == 3) {
             return 10000.*a + 100.*b + c;
         }
     }
     // could not determine numerical OS version
     //
     return 0;
+}
+
+// if os_version has [...|libc 2.27 ...], return 227.  else 0
+//
+static int libc_version(HOST &h) {
+    char *p = strstr(h.os_version, "|libc ");
+    if (!p) return 0;
+    p += strlen("|libc ");
+    int maj, min;
+    int n = sscanf(p, "%d.%d", &maj, &min);
+    if (n != 2) return 0;
+    return maj*100+min;
 }
 
 // parse version# from "(Android 4.3.1)" or "(Android 4.3)" or "(Android 4)"
@@ -82,7 +115,9 @@ static int android_version_num(HOST h) {
     return 0;
 }
 
-static bool wu_is_infeasible_for_plan_class(const PLAN_CLASS_SPEC* pc, const WORKUNIT* wu) {
+static bool wu_is_infeasible_for_plan_class(
+    const PLAN_CLASS_SPEC* pc, const WORKUNIT* wu
+) {
     if (pc->min_wu_id && wu->id < pc->min_wu_id) {
         if (config.debug_version_select) {
             log_messages.printf(MSG_NORMAL,
@@ -104,7 +139,7 @@ static bool wu_is_infeasible_for_plan_class(const PLAN_CLASS_SPEC* pc, const WOR
     if (pc->min_batch && wu->batch < pc->min_batch) {
         if (config.debug_version_select) {
             log_messages.printf(MSG_NORMAL,
-                "[version] batch#%ld too old for plan class '%s' (%ld)\n",
+                "[version] batch#%d too old for plan class '%s' (%ld)\n",
                 wu->batch, pc->name, pc->min_batch
             );
         }
@@ -113,7 +148,7 @@ static bool wu_is_infeasible_for_plan_class(const PLAN_CLASS_SPEC* pc, const WOR
     if (pc->max_batch && wu->batch > pc->max_batch) {
         if (config.debug_version_select) {
             log_messages.printf(MSG_NORMAL,
-                "[version] batch#%ld too new for plan class '%s' (%ld)\n",
+                "[version] batch#%d too new for plan class '%s' (%ld)\n",
                 wu->batch, pc->name, pc->max_batch
             );
         }
@@ -123,19 +158,15 @@ static bool wu_is_infeasible_for_plan_class(const PLAN_CLASS_SPEC* pc, const WOR
 }
 
 int PLAN_CLASS_SPECS::parse_file(const char* path) {
-#ifndef _USING_FCGI_
-    FILE* f = fopen(path, "r");
-#else
-    FCGI_FILE *f = FCGI::fopen(path, "r");
-#endif
+    FILE* f = boinc::fopen(path, "r");
     if (!f) return ERR_FOPEN;
     int retval = parse_specs(f);
-    fclose(f);
+    boinc::fclose(f);
     return retval;
 }
 
 bool PLAN_CLASS_SPEC::opencl_check(OPENCL_DEVICE_PROP& opencl_prop) {
-    if (min_opencl_version && opencl_prop.opencl_device_version_int 
+    if (min_opencl_version && opencl_prop.opencl_device_version_int
         && min_opencl_version > opencl_prop.opencl_device_version_int
     ) {
         if (config.debug_version_select) {
@@ -147,7 +178,7 @@ bool PLAN_CLASS_SPEC::opencl_check(OPENCL_DEVICE_PROP& opencl_prop) {
         return false;
     }
 
-    if (max_opencl_version && opencl_prop.opencl_device_version_int 
+    if (max_opencl_version && opencl_prop.opencl_device_version_int
         && max_opencl_version < opencl_prop.opencl_device_version_int
     ) {
         if (config.debug_version_select) {
@@ -159,7 +190,7 @@ bool PLAN_CLASS_SPEC::opencl_check(OPENCL_DEVICE_PROP& opencl_prop) {
         return false;
     }
 
-    if (min_opencl_driver_revision && opencl_prop.opencl_device_version_int 
+    if (min_opencl_driver_revision && opencl_prop.opencl_device_version_int
         && min_opencl_driver_revision > opencl_prop.opencl_driver_revision
     ) {
         if (config.debug_version_select) {
@@ -171,7 +202,7 @@ bool PLAN_CLASS_SPEC::opencl_check(OPENCL_DEVICE_PROP& opencl_prop) {
         return false;
     }
 
-    if (max_opencl_driver_revision && opencl_prop.opencl_device_version_int 
+    if (max_opencl_driver_revision && opencl_prop.opencl_device_version_int
         && max_opencl_driver_revision < opencl_prop.opencl_driver_revision
     ) {
         if (config.debug_version_select) {
@@ -198,7 +229,9 @@ bool PLAN_CLASS_SPEC::opencl_check(OPENCL_DEVICE_PROP& opencl_prop) {
 // See whether the given host/user can be sent this plan class.
 // If so return the resource usage and estimated FLOPS in hu.
 //
-bool PLAN_CLASS_SPEC::check(SCHEDULER_REQUEST& sreq, HOST_USAGE& hu, const WORKUNIT* wu) {
+bool PLAN_CLASS_SPEC::check(
+    SCHEDULER_REQUEST& sreq, HOST_USAGE& hu, const WORKUNIT* wu
+) {
     COPROC* cpp = NULL;
     bool can_use_multicore = true;
     string msg;
@@ -237,7 +270,7 @@ bool PLAN_CLASS_SPEC::check(SCHEDULER_REQUEST& sreq, HOST_USAGE& hu, const WORKU
     // so we can look for them with strstr()
     //
     if (!cpu_features.empty()) {
-        char buf[8192], buf2[512];
+        char buf[P_FEATURES_SIZE], buf2[512];
         sprintf(buf, " %s ", sreq.host.p_features);
         char* p = strrchr(sreq.host.p_model, '[');
         if (p) {
@@ -357,6 +390,21 @@ bool PLAN_CLASS_SPEC::check(SCHEDULER_REQUEST& sreq, HOST_USAGE& hu, const WORKU
                 log_messages.printf(MSG_NORMAL,
                     "[version] plan_class_spec: Android version '%s' too high (%d / %d)\n",
                     sreq.host.os_version, host_android_version, max_android_version
+                );
+            }
+            return false;
+        }
+    }
+
+    // libc version (linux)
+    //
+    if (min_libc_version) {
+        int v = libc_version(sreq.host);
+        if (v < min_libc_version) {
+            if (config.debug_version_select) {
+                log_messages.printf(MSG_NORMAL,
+                    "[version] plan_class_spec: libc version too low (%d < %d)\n",
+                    v, min_libc_version
                 );
             }
             return false;
@@ -658,8 +706,8 @@ bool PLAN_CLASS_SPEC::check(SCHEDULER_REQUEST& sreq, HOST_USAGE& hu, const WORKU
             }
             return false;
         }
-        
-        // in analogy to ATI/AMD 
+
+        // in analogy to ATI/AMD
         driver_version=cp.display_driver_version;
 
         if (min_gpu_ram_mb) {
@@ -733,6 +781,33 @@ bool PLAN_CLASS_SPEC::check(SCHEDULER_REQUEST& sreq, HOST_USAGE& hu, const WORKU
         }
         if (cp.bad_gpu_peak_flops("Intel GPU", msg)) {
             log_messages.printf(MSG_NORMAL, "%s\n", msg.c_str());
+        }
+
+    // Apple GPU
+
+    } else if (!strcmp(gpu_type, "apple_cpu")) {
+        COPROC& cp = sreq.coprocs.apple_gpu;
+        cpp = &cp;
+
+        if (!cp.count) {
+            if (config.debug_version_select) {
+                log_messages.printf(MSG_NORMAL,
+                    "[version] plan_class_spec: No Apple GPUs found\n"
+                );
+            }
+            return false;
+        }
+        if (min_gpu_ram_mb) {
+            gpu_requirements[PROC_TYPE_APPLE_GPU].update(0, min_gpu_ram_mb * MEGA);
+        }
+        if (cp.bad_gpu_peak_flops("Apple GPU", msg)) {
+            log_messages.printf(MSG_NORMAL, "%s\n", msg.c_str());
+        }
+
+        if (min_metal_support) {
+            if (sreq.coprocs.apple_gpu.metal_support < min_metal_support) {
+                return false;
+            }
         }
 
     // custom GPU type
@@ -879,7 +954,7 @@ bool PLAN_CLASS_SPEC::check(SCHEDULER_REQUEST& sreq, HOST_USAGE& hu, const WORKU
                 hu.avg_ncpus = avg_ncpus;
             }
             // I believe the first term here is just hu.projected_flops,
-            // but I'm leaving it spelled out to match GPU scheduling 
+            // but I'm leaving it spelled out to match GPU scheduling
             // code in sched_customize.cpp
             //
             hu.peak_flops = gpu_peak_flops_scale*gpu_usage*cpp->peak_flops
@@ -896,8 +971,8 @@ bool PLAN_CLASS_SPEC::check(SCHEDULER_REQUEST& sreq, HOST_USAGE& hu, const WORKU
         } else if (strstr(gpu_type, "intel")==gpu_type) {
             hu.proc_type = PROC_TYPE_INTEL_GPU;
             hu.gpu_usage = gpu_usage;
-        } else if (!strcmp(gpu_type, "miner_asic")) {
-            hu.proc_type = PROC_TYPE_MINER_ASIC;
+        } else if (strstr(gpu_type, "apple_gpu")==gpu_type) {
+            hu.proc_type = PROC_TYPE_APPLE_GPU;
             hu.gpu_usage = gpu_usage;
         } else {
             if (config.debug_version_select) {
@@ -981,11 +1056,11 @@ bool PLAN_CLASS_SPEC::check(SCHEDULER_REQUEST& sreq, HOST_USAGE& hu, const WORKU
 #endif
 
     return true;
-
 }
 
 bool PLAN_CLASS_SPECS::check(
-    SCHEDULER_REQUEST& sreq, char* plan_class, HOST_USAGE& hu, const WORKUNIT* wu
+    SCHEDULER_REQUEST& sreq, char* plan_class, HOST_USAGE& hu,
+    const WORKUNIT* wu
 ) {
     for (unsigned int i=0; i<classes.size(); i++) {
         if (!strcmp(classes[i].name, plan_class)) {
@@ -996,7 +1071,9 @@ bool PLAN_CLASS_SPECS::check(
     return false;
 }
 
-bool PLAN_CLASS_SPECS::wu_is_infeasible(char* plan_class_name, const WORKUNIT* wu) {
+bool PLAN_CLASS_SPECS::wu_is_infeasible(
+    char* plan_class_name, const WORKUNIT* wu
+) {
     if(wu_restricted_plan_class) {
         for (unsigned int i=0; i<classes.size(); i++) {
             if(!strcmp(classes[i].name, plan_class_name)) {
@@ -1077,6 +1154,7 @@ int PLAN_CLASS_SPEC::parse(XML_PARSER& xp) {
         if (xp.parse_double("max_os_version", max_os_version)) continue;
         if (xp.parse_int("min_android_version", min_android_version)) continue;
         if (xp.parse_int("max_android_version", max_android_version)) continue;
+        if (xp.parse_int("min_libc_version", min_libc_version)) continue;
         if (xp.parse_str("project_prefs_tag", project_prefs_tag, sizeof(project_prefs_tag))) continue;
         if (xp.parse_str("project_prefs_regex", buf, sizeof(buf))) {
             if (regcomp(&(project_prefs_regex), buf, REG_EXTENDED|REG_NOSUB) ) {
@@ -1123,6 +1201,8 @@ int PLAN_CLASS_SPEC::parse(XML_PARSER& xp) {
         if (xp.parse_int("max_opencl_driver_revision", max_opencl_driver_revision)) continue;
         if (xp.parse_bool("double_precision_fp", double_precision_fp)) continue;
 
+        if (xp.parse_int("min_metal_support", min_metal_support)) continue;
+
         if (xp.parse_int("min_vbox_version", min_vbox_version)) continue;
         if (xp.parse_int("max_vbox_version", max_vbox_version)) continue;
         if (xp.parse_int("exclude_vbox_version", i)) {
@@ -1141,7 +1221,7 @@ int PLAN_CLASS_SPECS::parse_specs(FILE* f) {
     if (!xp.parse_start("plan_classes")) return ERR_XML_PARSE;
     while (!xp.get_tag()) {
         if (!xp.is_tag) {
-            fprintf(stderr, "PLAN_CLASS_SPECS::parse(): unexpected text %s\n", xp.parsed_tag);
+            boinc::fprintf(stderr, "PLAN_CLASS_SPECS::parse(): unexpected text %s\n", xp.parsed_tag);
             continue;
         }
         if (xp.match_tag("/plan_classes")) {
@@ -1179,6 +1259,7 @@ PLAN_CLASS_SPEC::PLAN_CLASS_SPEC() {
     max_os_version = 0;
     min_android_version = 0;
     max_android_version = 0;
+    min_libc_version = 0;
     strcpy(project_prefs_tag, "");
     have_project_prefs_regex = false;
     project_prefs_default_true = false;
@@ -1264,12 +1345,14 @@ int main() {
     }
 
     for (unsigned int i=0; i<pcs.classes.size(); i++) {
-        bool b = pcs.check(sreq, pcs.classes[i].name, hu);
+        WORKUNIT wu;
+        wu.id = 100;
+        wu.batch = 100;
+        bool b = pcs.check(sreq, pcs.classes[i].name, hu, &wu);
         if (b) {
             printf("%s: check succeeded\n", pcs.classes[i].name);
-            printf("\tncudas: %f\n\tnatis: %f\n\tgpu_ram: %fMB\n\tavg_ncpus: %f\n\tprojected_flops: %fG\n\tpeak_flops: %fG\n",
-                hu.ncudas,
-                hu.natis,
+            printf("\tgpu_usage: %f\n\tgpu_ram: %fMB\n\tavg_ncpus: %f\n\tprojected_flops: %fG\n\tpeak_flops: %fG\n",
+                hu.gpu_usage,
                 hu.gpu_ram/1e6,
                 hu.avg_ncpus,
                 hu.projected_flops/1e9,

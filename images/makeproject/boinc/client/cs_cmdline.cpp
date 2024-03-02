@@ -21,9 +21,6 @@
 
 #ifdef _WIN32
 #include "boinc_win.h"
-#ifdef _MSC_VER
-#define chdir _chdir
-#endif
 #else
 #include "config.h"
 #include <cstdio>
@@ -52,6 +49,7 @@ static void print_options(char* prog) {
         "    --abort_jobs_on_exit           when client exits, abort and report jobs\n"
         "    --allow_remote_gui_rpc         allow remote GUI RPC connections\n"
         "    --allow_multiple_clients       allow >1 instances per host\n"
+        "    --app_test F                   run a simulated job with the given app\n"
         "    --attach_project <URL> <key>   attach to a project\n"
         "    --check_all_logins             for idle detection, check remote logins too\n"
         "    --daemon                       run as daemon (Unix)\n"
@@ -130,6 +128,9 @@ void CLIENT_STATE::parse_cmdline(int argc, char** argv) {
             cc_config.allow_multiple_clients = true;
         } else if (ARG(allow_remote_gui_rpc)) {
             cc_config.allow_remote_gui_rpc = true;
+        } else if (ARG(app_test)) {
+            app_test = true;
+            app_test_file = argv[++i];
         } else if (ARG(attach_project)) {
             if (i >= argc-2) {
                 show_options = true;
@@ -154,6 +155,7 @@ void CLIENT_STATE::parse_cmdline(int argc, char** argv) {
                     perror("chdir");
                     exit(1);
                 }
+                cmdline_dir = true;
             }
         } else if (ARG(exit_after_app_start)) {
             if (i == argc-1) show_options = true;
@@ -251,10 +253,10 @@ void CLIENT_STATE::parse_cmdline(int argc, char** argv) {
             printf(BOINC_VERSION_STRING " " HOSTTYPE "\n");
             exit(0);
 #ifdef __APPLE__
-        // workaround for bug in XCode 4.2: accept but ignore 
-        // argument -NSDocumentRevisionsDebugMode=YES 
+        // workaround for bug in XCode 4.2: accept but ignore
+        // argument -NSDocumentRevisionsDebugMode=YES
         } else if (ARG(NSDocumentRevisionsDebugMode)) {
-            ++i; 
+            ++i;
 #endif
         // detect_gpus is for internal use only - do not
         // add it to show_options() or doc/client.php
@@ -383,7 +385,7 @@ void CLIENT_STATE::do_cmdline_actions() {
 
     if (strlen(attach_project_url)) {
         canonicalize_master_url(attach_project_url, sizeof(attach_project_url));
-        add_project(attach_project_url, attach_project_auth, "", false);
+        add_project(attach_project_url, attach_project_auth, "", "", false);
     }
 }
 

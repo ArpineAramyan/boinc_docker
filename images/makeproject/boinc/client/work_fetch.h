@@ -16,7 +16,7 @@
 // along with BOINC.  If not, see <http://www.gnu.org/licenses/>.
 
 // Work fetch logic for CPU, GPU, and other processing resources.
-// See http://boinc.berkeley.edu/trac/wiki/GpuWorkFetch
+// See https://github.com/BOINC/boinc/wiki/GpuWorkFetch
 
 #ifndef BOINC_WORK_FETCH_H
 #define BOINC_WORK_FETCH_H
@@ -58,7 +58,8 @@ typedef enum {
     RSC_REASON_BUFFER_FULL,
     RSC_REASON_NOT_HIGHEST_PRIO,
     RSC_REASON_BACKED_OFF,
-    RSC_REASON_DEFER_SCHED
+    RSC_REASON_DEFER_SCHED,
+    RSC_REASON_MAX_CONCURRENT
 } RSC_REASON;
 
 struct PROJECT;
@@ -111,6 +112,9 @@ struct RSC_PROJECT_WORK_FETCH {
         // This project has a coproc job of the given type for which
         // the job is deferred because of a temporary_exit() call.
         // Don't fetch more jobs of this type; they might have same problem
+    double last_mc_limit_reltime;
+        // in RR sim, last relative time when we couldn't run a job
+        // of this resource because of max concurrent limit
     RSC_REASON rsc_project_reason;
         // If zero, it's OK to ask this project for this type of work.
         // If nonzero, the reason why it's not OK
@@ -325,8 +329,13 @@ struct PROJECT_WORK_FETCH {
         // If we're uploading but a resource is idle, make a work request.
         // If this succeeds, clear the flag.
 
+    PROJECT_WORK_FETCH(int) {}
+    void clear() {
+        static const PROJECT_WORK_FETCH x(0);
+        *this = x;
+    }
     PROJECT_WORK_FETCH() {
-        memset(this, 0, sizeof(*this));
+        clear();
     }
     void reset(PROJECT*);
     void rr_init(PROJECT*);

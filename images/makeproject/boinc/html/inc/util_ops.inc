@@ -18,13 +18,11 @@
 
 // utility functions for admin web pages
 
-error_reporting(E_ALL);
-ini_set('display_errors', true);
-ini_set('display_startup_errors', true);
-
 require_once("../inc/db_ops.inc");
 require_once("../inc/util.inc");
 require_once("../project/project.inc");
+
+display_errors();
 
 function admin_page_head($title) {
     echo "<!DOCTYPE html PUBLIC \"-//W3C//DTD HTML 4.01 Transitional//EN\" \"http://www.w3.org/TR/html4/loose.dtd\">";
@@ -83,7 +81,7 @@ function print_text_field($text,$name,$value) {
 }
 
 function row($x, $y) {
-    echo "<tr><td valign=\"top\" align=\"right\">$x</td>\n<td>$y</td>\n</tr>\n";
+    echo "<tr><td width=30% valign=\"top\" align=\"right\">$x &nbsp;&nbsp; </td>\n<td>$y</td>\n</tr>\n";
 }
 
 function c_row2($color, $x, $y) {
@@ -91,7 +89,7 @@ function c_row2($color, $x, $y) {
 }
 
 function show_profile_link_ops($user) {
-    if ($user->has_profile) { 
+    if ($user->has_profile) {
         row2("Profile",
             "<a href=\"".url_base()."view_profile.php?userid=$user->id\">View</a>"
         );
@@ -200,7 +198,7 @@ if (!function_exists('auth_ops')) {
                 You must protect the admin interface
                 with either a .htaccess file or an auto_ops() function.
                 <p>
-                <a href=http://boinc.berkeley.edu/trac/wiki/HtmlOps>See how here</a>"
+                <a href=https://github.com/BOINC/boinc/wiki/HtmlOps>See how here</a>"
             );
         }
     }
@@ -284,8 +282,10 @@ function app_version_desc($avid) {
         return "Anonymous platform: NVIDIA GPU";
     case ANON_PLATFORM_ATI:
         return "Anonymous platform: AMD GPU";
-    case ANON_PLATFORM_INTEL:
+    case ANON_PLATFORM_INTEL_GPU:
         return "Anonymous platform: Intel GPU";
+    case ANON_PLATFORM_APPLE_GPU:
+        return "Anonymous platform: Apple GPU";
     }
     if ($avid <= 0) {
         return "unknown: $avid";
@@ -309,7 +309,7 @@ function get_badge($name, $title, $image_url) {
     $b = BoincBadge::lookup("name='$name'");
     if ($b) return $b;
     $now = time();
-    $id = BoincBadge::insert("(create_time, name, title, image_url) values ($now, '$name', '$title', 'img/$image_url')");
+    $id = BoincBadge::insert("(create_time, type, name, title, description, image_url, level, tags, sql_rule) values ($now, 0, '$name', '$title', '', 'img/$image_url', '', '', '')");
     $b = BoincBadge::lookup_id($id);
     if ($b) return $b;
     die("can't create badge $name\n");

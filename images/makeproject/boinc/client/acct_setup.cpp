@@ -38,12 +38,12 @@
 #include "acct_setup.h"
 
 void ACCOUNT_IN::parse(XML_PARSER& xp) {
-    url = "";
-    email_addr = "";
-    passwd_hash = "";
-    user_name = "";
-    team_name = "";
-    server_cookie = "";
+    url.clear();
+    email_addr.clear();
+    passwd_hash.clear();
+    user_name.clear();
+    team_name.clear();
+    server_cookie.clear();
     ldap_auth = false;
     server_assigned_cookie = false;
     consented_to_terms = false;
@@ -213,7 +213,7 @@ int GET_PROJECT_LIST_OP::do_rpc() {
     int retval;
     char buf[256];
 
-    sprintf(buf, "https://boinc.berkeley.edu/project_list.php");
+    snprintf(buf, sizeof(buf), "https://boinc.berkeley.edu/project_list.php");
     retval = gui_http->do_rpc(
         this, buf, ALL_PROJECTS_LIST_FILENAME_TEMP, true
     );
@@ -289,8 +289,11 @@ void CLIENT_STATE::process_autologin(bool first) {
         //
         FILE* f = boinc_fopen(ACCOUNT_DATA_FILENAME, "r");
         if (!f) return;
-        fgets(buf, 256, f);
+        p = fgets(buf, 256, f);
         fclose(f);
+        if (p == NULL) {
+            return;
+        }
         p = strstr(buf, "__");
         if (!p) {
             boinc_delete_file(ACCOUNT_DATA_FILENAME);
@@ -455,7 +458,7 @@ void LOOKUP_LOGIN_TOKEN_OP::handle_reply(int http_op_retval) {
         msg_printf(NULL, MSG_INFO, "Attaching to project %s", pli->name.c_str());
         gstate.add_project(
             pli->master_url.c_str(), authenticator.c_str(),
-            pli->name.c_str(), false
+            pli->name.c_str(), "", false
         );
         PROJECT *p = gstate.lookup_project(pli->master_url.c_str());
         if (p) {

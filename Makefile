@@ -1,6 +1,6 @@
 default:
 
-DC=docker-compose
+DC= sudo docker-compose
 
 
 up: up-mysql post-makeproject up-apache

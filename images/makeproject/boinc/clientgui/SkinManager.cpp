@@ -1,6 +1,6 @@
 // This file is part of BOINC.
 // http://boinc.berkeley.edu
-// Copyright (C) 2008 University of California
+// Copyright (C) 2023 University of California
 //
 // BOINC is free software; you can redistribute it and/or modify it
 // under the terms of the GNU Lesser General Public License
@@ -31,6 +31,9 @@
 #include "SkinManager.h"
 #include "MainDocument.h"
 #include "version.h"
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <cstdlib>
 
 
 ////@begin XPM images
@@ -96,7 +99,7 @@ void CSkinImage::Clear() {
     m_colBackgroundColor = wxNullColour;
     m_iAnchorHorizontal = -1;
     m_iAnchorVertical = -1;
-    
+
 }
 
 
@@ -140,7 +143,7 @@ int CSkinImage::Parse(MIOFILE& in) {
 
 wxBitmap* CSkinImage::GetBitmap() {
     Validate();
-    return &m_bmpBitmap; 
+    return &m_bmpBitmap;
 }
 
 
@@ -181,15 +184,6 @@ bool CSkinImage::Validate() {
         if (!m_strDesiredBitmap.IsEmpty()) {
             wxImage img = wxImage(m_strDesiredBitmap, wxBITMAP_TYPE_ANY);
             if (img.IsOk()) {
-#ifdef __WXMSW__
-// TODO: Choose from multiple size images if provided, else resize the closest one
-                if ((GetXDPIScaling() > 1.05) || (GetYDPIScaling() > 1.05)) {
-                    img.Rescale((int) (img.GetWidth()*GetXDPIScaling()), 
-                                (int) (img.GetHeight()*GetYDPIScaling()), 
-                                wxIMAGE_QUALITY_BILINEAR
-                            );
-                }
-#endif
                 m_bmpBitmap = wxBitmap(img);
             }
         }
@@ -197,7 +191,7 @@ bool CSkinImage::Validate() {
             if (show_error_msgs) {
                 fprintf(stderr, "Skin Manager: Failed to load '%s' image. Using default.\n", (const char *)m_strComponentName.mb_str());
             }
-            m_bmpBitmap = GetScaledBitmapFromXPMData(m_ppDefaultBitmap);
+            m_bmpBitmap = wxBitmap(m_ppDefaultBitmap);
             wxASSERT(m_bmpBitmap.Ok());
         }
     }
@@ -327,7 +321,7 @@ bool CSkinIcon::Validate() {
         // Configure bitmap object with optional transparency mask
         wxImage img = wxImage(m_strDesiredIcon, wxBITMAP_TYPE_ANY);
         wxBitmap bmp = wxBitmap(img);
-        // If PNG file has alpha channel use it as mask & ignore <transparency_mask> tag 
+        // If PNG file has alpha channel use it as mask & ignore <transparency_mask> tag
         if (!(m_strDesiredTransparencyMask.IsEmpty() || img.HasAlpha())) {
             bmp.SetMask(new wxMask(bmp, ParseColor(m_strDesiredTransparencyMask)));
         }
@@ -340,7 +334,7 @@ bool CSkinIcon::Validate() {
         // Configure bitmap object with optional transparency mask
         wxImage img32 = wxImage(m_strDesiredIcon32, wxBITMAP_TYPE_ANY);
         wxBitmap bmp32 = wxBitmap(img32);
-        // If PNG file has alpha channel use it as mask & ignore <transparency_mask> tag 
+        // If PNG file has alpha channel use it as mask & ignore <transparency_mask> tag
         if (!(m_strDesiredTransparencyMask32.IsEmpty() || img32.HasAlpha())) {
             bmp32.SetMask(new wxMask(bmp32, ParseColor(m_strDesiredTransparencyMask32)));
         }
@@ -385,7 +379,6 @@ void CSkinSimple::Clear() {
     m_WorkunitWaitingImage.Clear();
     m_iPanelOpacity = DEFAULT_OPACITY;
 }
-
 
 int CSkinSimple::Parse(MIOFILE& in) {
     char buf[256];
@@ -438,7 +431,7 @@ bool CSkinSimple::InitializeDelayedValidation() {
     );
     m_DialogBackgroundImage.SetDefaults(
         wxT("dialog background"), (const char**)dialog_background_image_xpm,
-        wxT("255:255:255"), BKGD_ANCHOR_HORIZ_CENTER, BKGD_ANCHOR_VERT_CENTER
+        wxGetApp().GetIsDarkMode() ? wxT("0:0:0") : wxT("255:255:255"), BKGD_ANCHOR_HORIZ_CENTER, BKGD_ANCHOR_VERT_CENTER
     );
     m_ProjectImage.SetDefaults(
         wxT("project"), (const char**)project_image_xpm
@@ -528,15 +521,6 @@ int CSkinAdvanced::Parse(MIOFILE& in) {
                 if (boinc_file_exists(str.c_str())) {
                     wxImage img = wxImage(str.c_str(), wxBITMAP_TYPE_ANY);
                     if (img.IsOk()) {
-#ifdef __WXMSW__
-// TODO: Choose from multiple size images if provided, else resize the closest one
-                        if ((GetXDPIScaling() > 1.05) || (GetYDPIScaling() > 1.05)) {
-                            img.Rescale((int) (img.GetWidth()*GetXDPIScaling()), 
-                                        (int) (img.GetHeight()*GetYDPIScaling()), 
-                                        wxIMAGE_QUALITY_BILINEAR
-                                    );
-                        }
-#endif
                         m_bitmapApplicationLogo = wxBitmap(img);
                     }
                 }
@@ -596,7 +580,7 @@ wxIconBundle* CSkinAdvanced::GetApplicationIcon() {
 }
 
 
-wxIconBundle* CSkinAdvanced::GetApplicationDisconnectedIcon() { 
+wxIconBundle* CSkinAdvanced::GetApplicationDisconnectedIcon() {
     return m_iconApplicationDisconnectedIcon.GetIcon();
 }
 
@@ -611,7 +595,7 @@ wxBitmap* CSkinAdvanced::GetApplicationLogo() {
 }
 
 
-wxString CSkinAdvanced::GetOrganizationName() { 
+wxString CSkinAdvanced::GetOrganizationName() {
     return m_strOrganizationName;
 }
 
@@ -629,17 +613,17 @@ wxString CSkinAdvanced::GetOrganizationReportBugUrl() {
     return m_strOrganizationReportBugUrl;
 }
 
-int CSkinAdvanced::GetDefaultTab() { 
+int CSkinAdvanced::GetDefaultTab() {
     return m_iDefaultTab;
 }
 
 
-wxString CSkinAdvanced::GetExitMessage() { 
+wxString CSkinAdvanced::GetExitMessage() {
     return m_strExitMessage;
 }
 
 
-bool CSkinAdvanced::IsBranded() { 
+bool CSkinAdvanced::IsBranded() {
     return m_bIsBranded;
 }
 
@@ -716,9 +700,9 @@ bool CSkinAdvanced::InitializeDelayedValidation() {
     }
     if (m_strOrganizationReportBugUrl.IsEmpty()) {
         if (show_error_msgs) {
-            fprintf(stderr, "Skin Manager: Origanization report bug url was not defined. Using defaults.\n");
+            fprintf(stderr, "Skin Manager: Organization report bug url was not defined. Using defaults.\n");
         }
-        m_strOrganizationReportBugUrl = wxT("https://boinc.berkeley.edu/trac/wiki/ReportBugs");
+        m_strOrganizationReportBugUrl = wxT("https://github.com/BOINC/boinc/wiki/ReportBugs");
         wxASSERT(!m_strOrganizationReportBugUrl.IsEmpty());
     }
     return true;
@@ -859,7 +843,7 @@ int CSkinWizards::Parse(MIOFILE& in) {
 
 
 bool CSkinWizards::InitializeDelayedValidation() {
-    return m_AttachToProjectWizard.InitializeDelayedValidation() && 
+    return m_AttachToProjectWizard.InitializeDelayedValidation() &&
            m_AttachToAccountManagerWizard.InitializeDelayedValidation();
 }
 
@@ -889,8 +873,8 @@ bool CSkinManager::ReloadSkin(wxString strSkin) {
     if (strSkin.IsEmpty()) {
         strSkin = GetDefaultSkinName();
     }
-    
-    // Clear out all the old stuff 
+
+    // Clear out all the old stuff
     Clear();
 
     // Set the default skin back to Default
@@ -961,9 +945,9 @@ wxString CSkinManager::GetDefaultSkinName() {
 
 wxString CSkinManager::ConstructSkinFileName() {
     return wxString(
-        GetSkinsLocation() + 
+        GetSkinsLocation() +
         wxString(wxFileName::GetPathSeparator()) +
-        m_strSelectedSkin + 
+        m_strSelectedSkin +
         wxString(wxFileName::GetPathSeparator()) +
         GetSkinFileName()
     );
@@ -972,9 +956,9 @@ wxString CSkinManager::ConstructSkinFileName() {
 
 wxString CSkinManager::ConstructSkinPath() {
     return wxString(
-        GetSkinsLocation() + 
+        GetSkinsLocation() +
         wxString(wxFileName::GetPathSeparator()) +
-        m_strSelectedSkin + 
+        m_strSelectedSkin +
         wxString(wxFileName::GetPathSeparator())
     );
 }
@@ -994,6 +978,17 @@ wxString CSkinManager::GetSkinsLocation() {
     strSkinLocation  = wxGetApp().GetRootDirectory();
     strSkinLocation += wxFileName::GetPathSeparator();
     strSkinLocation += wxT("skins");
+#elif defined(__WXGTK__)
+    strSkinLocation = wxGetApp().GetRootDirectory();
+    wxString strLinuxSkinLocation = strSkinLocation + wxT("/../share/boinc-manager/skins");
+    struct stat info;
+    // check if folder exist
+    if (stat( strLinuxSkinLocation.mb_str(), &info ) == 0 && info.st_mode & S_IFDIR) {
+        strSkinLocation = strLinuxSkinLocation;
+    }
+    else {
+        strSkinLocation += wxT("/skins");
+    }
 #else
     strSkinLocation = wxString(wxGetCwd() + wxString(wxFileName::GetPathSeparator()) + wxT("skins"));
 #endif
@@ -1054,8 +1049,8 @@ int CSkinManager::Parse(MIOFILE& in, wxString strDesiredLocale) {
 
 
 bool CSkinManager::InitializeDelayedValidation() {
-    return m_SimpleSkin.InitializeDelayedValidation() && 
-           m_AdvancedSkin.InitializeDelayedValidation() && 
+    return m_SimpleSkin.InitializeDelayedValidation() &&
+           m_AdvancedSkin.InitializeDelayedValidation() &&
            m_WizardsSkin.InitializeDelayedValidation();
 }
 

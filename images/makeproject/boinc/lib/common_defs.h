@@ -1,6 +1,6 @@
 // This file is part of BOINC.
 // http://boinc.berkeley.edu
-// Copyright (C) 2008 University of California
+// Copyright (C) 2019 University of California
 //
 // BOINC is free software; you can redistribute it and/or modify it
 // under the terms of the GNU Lesser General Public License
@@ -15,14 +15,22 @@
 // You should have received a copy of the GNU Lesser General Public License
 // along with BOINC.  If not, see <http://www.gnu.org/licenses/>.
 
+// #defines and enums that are shared by more than one BOINC component
+// (e.g. client, server, Manager, etc.)
+//
+// Notes:
+// 1) Some of these are replicated in PHP code: html/inc/common_defs.inc.
+//    If you change something, check there.
+// 2) The script py/db_def_to_py scrapes this file for #defines (not enums)
+//    and makes variables for them.
+//    AFAIK these aren't used, and we can remove this.
+// 3) we should use enums instead of defines where appropriate
+
 #ifndef BOINC_COMMON_DEFS_H
 #define BOINC_COMMON_DEFS_H
 
 #include "miofile.h"
 #include "parse.h"
-
-// #defines or enums that are shared by more than one BOINC component
-// (e.g. client, server, Manager, etc.)
 
 #define GUI_RPC_PORT 31416
     // for TCP connection
@@ -45,9 +53,11 @@
 // "SCHEDULED" doesn't mean the task is actually running;
 // e.g. it won't be running if tasks are suspended or CPU throttling is in use
 //
-#define CPU_SCHED_UNINITIALIZED   0
-#define CPU_SCHED_PREEMPTED       1
-#define CPU_SCHED_SCHEDULED       2
+enum SCHEDULER_STATE {
+    CPU_SCHED_UNINITIALIZED   = 0,
+    CPU_SCHED_PREEMPTED       = 1,
+    CPU_SCHED_SCHEDULED       = 2
+};
 
 // official HTTP status codes
 
@@ -79,6 +89,8 @@
 #define NGRAPHICS_MSGS  7
 
 // process priorities
+// Unfortunately different areas of code use two different numbering schemes.
+// The following is used in wrapper job.xml files
 //
 #define PROCESS_PRIORITY_UNSPECIFIED    0
 #define PROCESS_PRIORITY_LOWEST     1
@@ -91,6 +103,17 @@
     // win: ABOVE_NORMAL; unix: -10
 #define PROCESS_PRIORITY_HIGHEST    5
     // win: HIGH; unix: -16
+
+// The following is used in cc_config.xml,
+// and passed to apps in the APP_INIT_DATA structure
+//
+#define CONFIG_PRIORITY_UNSPECIFIED -1
+#define CONFIG_PRIORITY_LOWEST      0
+#define CONFIG_PRIORITY_LOW         1
+#define CONFIG_PRIORITY_NORMAL      2
+#define CONFIG_PRIORITY_HIGH        3
+#define CONFIG_PRIORITY_HIGHEST     4
+#define CONFIG_PRIORITY_REALTIME    5
 
 // priorities for client messages
 //
@@ -110,7 +133,7 @@
     // high-priority message from scheduler
     // (used internally within the client;
     // changed to MSG_USER_ALERT before passing to manager)
-    
+
 // values for suspend_reason, network_suspend_reason
 // Notes:
 // - doesn't need to be a bitmap, but keep for compatibility
@@ -147,6 +170,26 @@ enum BATTERY_STATE {
     BATTERY_STATE_OVERHEATED
 };
 
+// states for sporadic apps
+//
+// client state
+enum SPORADIC_CA_STATE {
+    CA_NONE             = 0,
+    CA_DONT_COMPUTE     = 1,
+    // computing suspended (CPU and perhaps GPU) or other project have priority
+    CA_COULD_COMPUTE    = 2,
+    // not computing, but could
+    CA_COMPUTING        = 3
+    // go ahead and compute
+};
+
+// app state
+enum SPORADIC_AC_STATE {
+    AC_NONE                 = 0,
+    AC_DONT_WANT_COMPUTE    = 1,
+    AC_WANT_COMPUTE         = 2
+};
+
 // Values of RESULT::state in client.
 // THESE MUST BE IN NUMERICAL ORDER
 // (because of the > comparison in RESULT::computing_done())
@@ -170,7 +213,7 @@ enum BATTERY_STATE {
     // some output file permanent failure
 
 // Values of FILE_INFO::status.
-// If the status is neither of these two,
+// If the status is none of these,
 // it's an error code indicating an unrecoverable error
 // in the transfer of the file,
 // or that the file was too big and was deleted.
@@ -309,8 +352,8 @@ struct VERSION_INFO {
     int minor;
     int release;
     bool prerelease;
-    int parse(MIOFILE&); 
-    void write(MIOFILE&); 
+    int parse(MIOFILE&);
+    void write(MIOFILE&);
     bool greater_than(VERSION_INFO&);
     VERSION_INFO() {
         major = 0;
@@ -361,6 +404,15 @@ struct DEVICE_STATUS {
 #define DEFAULT_SS_EXECUTABLE       "boincscr.exe"
 #else
 #define DEFAULT_SS_EXECUTABLE       "boincscr"
+#endif
+
+#define LINUX_CONFIG_FILE           "/etc/boinc-client/config.properties"
+
+// Used by Manager and boinccmd to locate the data dir.
+// You can define this in "configure" if you want.
+//
+#ifndef LINUX_DEFAULT_DATA_DIR
+#define LINUX_DEFAULT_DATA_DIR      "/var/lib/boinc-client"
 #endif
 
 #endif

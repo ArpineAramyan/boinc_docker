@@ -1,6 +1,6 @@
 // This file is part of BOINC.
 // http://boinc.berkeley.edu
-// Copyright (C) 2008 University of California
+// Copyright (C) 2023 University of California
 //
 // BOINC is free software; you can redistribute it and/or modify it
 // under the terms of the GNU Lesser General Public License
@@ -15,9 +15,11 @@
 // You should have received a copy of the GNU Lesser General Public License
 // along with BOINC.  If not, see <http://www.gnu.org/licenses/>.
 
+// Structures representing jobs, files, etc.
+//
 // If you change anything, make sure you also change:
-// client_types.C         (to write and parse it)
-// client_state.C  (to cross-link objects)
+// client_types.cpp (to write and parse it)
+// client_state.cpp (to cross-link objects)
 //
 
 #ifndef BOINC_CLIENT_TYPES_H
@@ -99,7 +101,7 @@ struct URL_LIST {
 };
 
 struct FILE_INFO {
-    char name[256];
+    char name[256];         // physical name
     char md5_cksum[MD5_LEN];
     double max_nbytes;
     double nbytes;
@@ -124,8 +126,6 @@ struct FILE_INFO {
         // for output files: gzip file when done, and append .gz to its name
     class PERS_FILE_XFER* pers_file_xfer;
         // nonzero if in the process of being up/downloaded
-    RESULT* result;
-        // for upload files (to authenticate)
     PROJECT* project;
     int ref_cnt;
     URL_LIST download_urls;
@@ -155,6 +155,7 @@ struct FILE_INFO {
     void failure_message(std::string&);
     int merge_info(FILE_INFO&);
     int verify_file(bool, bool, bool);
+    int check_size();
     bool verify_file_certs();
     int gzip();
         // gzip file and add .gz to name
@@ -176,7 +177,7 @@ struct FILE_INFO {
 //
 struct FILE_REF {
     char file_name[256];
-        // physical name
+        // physical name; should match file_info->name
     char open_name[256];
         // logical name
     bool main_program;
@@ -186,22 +187,38 @@ struct FILE_REF {
     bool optional;
         // for output files: app may not generate file;
         // don't treat as error if file is missing.
+    inline void clear() {
+        safe_strcpy(file_name, "");
+        safe_strcpy(open_name, "");
+        main_program = false;
+        file_info = NULL;
+        copy_file = false;
+        optional = false;
+    }
+    FILE_REF() {clear();}
     int parse(XML_PARSER&);
     int write(MIOFILE&);
 };
 
-// file xfer backoff state for a project and direction (up/down)
-// if file_xfer_failures exceeds FILE_XFER_FAILURE_LIMIT,
+// File xfer backoff state for a project and direction (up/down).
+// If we get more than FILE_XFER_FAILURE_LIMIT (3) consecutive failures,
 // we switch from a per-file to a project-wide backoff policy
 // (separately for the up/down directions)
+// E.g. if we have 100 files to upload and the first 3 fail,
+// we don't try the other 97 immediately.
+//
 // NOTE: this refers to transient failures, not permanent.
 //
+
 #define FILE_XFER_FAILURE_LIMIT 3
+
 struct FILE_XFER_BACKOFF {
     int file_xfer_failures;
         // count of consecutive failures
     double next_xfer_time;
         // when to start trying again
+    bool is_upload;
+
     bool ok_to_transfer();
     void file_xfer_failed(PROJECT*);
     void file_xfer_succeeded();
@@ -228,8 +245,14 @@ struct DAILY_STATS {
     double host_expavg_credit;
     double day;
 
-    void clear();
-    DAILY_STATS() {clear();}
+    DAILY_STATS(int){}
+    void clear() {
+        static const DAILY_STATS x(0);
+        *this = x;
+    }
+    DAILY_STATS() {
+        clear();
+    }
     int parse(FILE*);
 };
 bool operator < (const DAILY_STATS&, const DAILY_STATS&);
@@ -254,6 +277,7 @@ struct APP {
     char name[256];
     char user_friendly_name[256];
     bool non_cpu_intensive;
+    bool sporadic;
     bool fraction_done_exact;
     PROJECT* project;
     bool report_results_immediately;
@@ -275,7 +299,14 @@ struct APP {
     bool ignore;
 #endif
 
-    APP() {memset(this, 0, sizeof(APP));}
+    APP(int){}
+    void clear() {
+        static const APP x(0);
+        *this = x;
+    }
+    APP(){
+        clear();
+    }
     int parse(XML_PARSER&);
     int write(MIOFILE&);
 };
@@ -285,6 +316,8 @@ struct GPU_USAGE {
     double usage;
 };
 
+// if you add anything, initialize it in init()
+//
 struct APP_VERSION {
     char app_name[256];
     int version_num;
@@ -306,8 +339,14 @@ struct APP_VERSION {
     PROJECT* project;
     std::vector<FILE_REF> app_files;
     int ref_cnt;
+
+    // graphics app, if any
+    // the strings are filled in after exec is downloaded and verified
+    //
+    FILE_INFO *graphics_exec_fip;
     char graphics_exec_path[MAXPATHLEN];
     char graphics_exec_file[256];
+
     double max_working_set_size;
         // max working set of tasks using this app version.
         // unstarted jobs using this app version are assumed
@@ -350,6 +389,7 @@ struct APP_VERSION {
     inline bool is_opencl() {
         return (strstr(plan_class, "opencl") != NULL);
     }
+    void check_graphics_exec();
 };
 
 struct WORKUNIT {
@@ -373,7 +413,7 @@ struct WORKUNIT {
         safe_strcpy(name, "");
         safe_strcpy(app_name, "");
         version_num = 0;
-        command_line = "";
+        command_line.clear();
         input_files.clear();
         job_keyword_ids.clear();
         project = NULL;
@@ -413,6 +453,33 @@ struct RUN_MODE {
 struct PLATFORM {
     std::string name;
 };
+
+// the oldest CPID for a given email hash
+//
+struct USER_CPID {
+    char email_hash[MD5_LEN];
+    char cpid[MD5_LEN];
+    double time;
+    inline void clear() {
+        strcpy(email_hash, "");
+        strcpy(cpid, "");
+        time = 0;
+    }
+    int parse(XML_PARSER&);
+    int write(MIOFILE&);
+};
+
+// a list of the above
+//
+struct USER_CPIDS {
+    std::vector<USER_CPID> cpids;
+    int parse(XML_PARSER&);
+    int write(MIOFILE&);
+    USER_CPID *lookup(const char* email_hash);
+    void init_from_projects();
+};
+
+extern USER_CPIDS user_cpids;
 
 extern int parse_project_files(XML_PARSER&, std::vector<FILE_REF>&);
 

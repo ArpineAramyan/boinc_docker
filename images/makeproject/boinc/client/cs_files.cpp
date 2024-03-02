@@ -30,10 +30,6 @@
 #include <sys/types.h>
 #endif
 
-#ifdef _MSC_VER
-#define snprintf _snprintf
-#endif
-
 #include "md5_file.h"
 #include "crypt.h"
 #include "str_replace.h"
@@ -49,6 +45,7 @@
 #include "client_msgs.h"
 #include "file_xfer.h"
 #include "project.h"
+#include "result.h"
 #include "sandbox.h"
 
 using std::vector;
@@ -90,15 +87,39 @@ bool CLIENT_STATE::start_new_file_xfer(PERS_FILE_XFER& pfx) {
     return true;
 }
 
-// Make a directory for each of the projects in the client state
+// Make a directory for each of the projects in the client state,
+// and delete other stuff in projects/
 //
 int CLIENT_STATE::make_project_dirs() {
     unsigned int i;
     int retval;
+    vector<string> pds;
     for (i=0; i<projects.size(); i++) {
-        retval = make_project_dir(*projects[i]);
+        PROJECT *p = projects[i];
+        retval = make_project_dir(*p);
         if (retval) return retval;
+        pds.push_back(p->project_dir());
     }
+
+    string name;
+    char path[MAXPATHLEN];
+    DirScanner dir("projects");
+    while (dir.scan(name)) {
+        snprintf(path, sizeof(path), "projects/%s", name.c_str());
+        if (std::find(pds.begin(), pds.end(), path) != pds.end()) {
+            continue;
+        }
+        msg_printf(0, MSG_INFO,
+            "%s is not a project dir - removing", path
+        );
+        if (is_dir(path)) {
+            clean_out_dir(path);
+            boinc_rmdir(path);
+        } else {
+            boinc_delete_file(path);
+        }
+    }
+
     return 0;
 }
 
@@ -191,7 +212,7 @@ int FILE_INFO::verify_file(
     // see if we need to unzip it
     //
     if (download_gzipped && !boinc_file_exists(pathname)) {
-        char gzpath[MAXPATHLEN];
+        char gzpath[MAXPATHLEN+16];
         snprintf(gzpath, sizeof(gzpath), "%s.gz", pathname);
         if (boinc_file_exists(gzpath) ) {
             if (allow_async && nbytes > ASYNC_FILE_THRESHOLD) {
@@ -238,8 +259,8 @@ int FILE_INFO::verify_file(
                 name, nbytes, size
             );
         }
-        status = ERR_WRONG_SIZE;
-        return ERR_WRONG_SIZE;
+        status = ERR_FILE_WRONG_SIZE;
+        return ERR_FILE_WRONG_SIZE;
     }
 
     if (!verify_contents) return 0;
@@ -416,7 +437,7 @@ bool CLIENT_STATE::create_and_delete_pers_file_xfers() {
                 // If this was a compressed download, rename .gzt to .gz
                 //
                 if (fip->download_gzipped) {
-                    char path[MAXPATHLEN], from_path[MAXPATHLEN], to_path[MAXPATHLEN];
+                    char path[MAXPATHLEN], from_path[MAXPATHLEN+16], to_path[MAXPATHLEN+16];
                     get_pathname(fip, path, sizeof(path));
                     snprintf(from_path, sizeof(from_path), "%s.gzt", path);
                     snprintf(to_path, sizeof(to_path), "%s.gz", path);
@@ -469,6 +490,35 @@ bool CLIENT_STATE::create_and_delete_pers_file_xfers() {
 }
 #endif
 
+// Check whether file exists and has the right size.
+// If the size on disk does not match the expected size, delete the file.
+//
+int FILE_INFO::check_size() {
+    char path[MAXPATHLEN];
+    get_pathname(this, path, sizeof(path));
+    double size;
+    int retval = file_size(path, size);
+    if (retval) {
+        delete_project_owned_file(path, true);
+        status = FILE_NOT_PRESENT;
+        msg_printf(project, MSG_INFO, "File %s not found", path);
+        return ERR_FILE_MISSING;
+    }
+    if (gstate.global_prefs.dont_verify_images && is_image_file(path)) {
+        return 0;
+    }
+    if (nbytes && (size != nbytes)) {
+        delete_project_owned_file(path, true);
+        status = FILE_NOT_PRESENT;
+        msg_printf(project, MSG_INFO,
+            "File %s has wrong size: expected %.0f, got %.0f",
+            path, nbytes, size
+        );
+        return ERR_FILE_WRONG_SIZE;
+    }
+    return 0;
+}
+
 // for each FILE_INFO (i.e. each project file the client knows about)
 // check that the file exists and is of the right size.
 // Called at startup.
@@ -490,23 +540,36 @@ void CLIENT_STATE::check_file_existence() {
         }
         if (cc_config.dont_check_file_sizes) continue;
         if (fip->status == FILE_PRESENT) {
-            get_pathname(fip, path, sizeof(path));
-            double size;
-            int retval = file_size(path, size);
-            if (retval) {
-                delete_project_owned_file(path, true);
-                fip->status = FILE_NOT_PRESENT;
-                msg_printf(fip->project, MSG_INFO, "File %s not found", path);
-            } else if (fip->nbytes && (size != fip->nbytes)) {
-                if (gstate.global_prefs.dont_verify_images && is_image_file(path)) continue;
-                delete_project_owned_file(path, true);
-                fip->status = FILE_NOT_PRESENT;
-                msg_printf(fip->project, MSG_INFO,
-                    "File %s has wrong size: expected %.0f, got %.0f",
-                    path, fip->nbytes, size
-                );
+            fip->check_size();
+
+            // If an output file disappears before it's uploaded,
+            // flag the job as an error.
+            //
+            if (fip->status == FILE_NOT_PRESENT && fip->uploadable() && !fip->uploaded) {
+                RESULT* rp = file_info_to_result(fip);
+                if (rp) {
+                    gstate.report_result_error(
+                        *rp, "output file missing or invalid"
+                    );
+                }
             }
         }
     }
 }
 
+// return the result that *fip is an output file of, if any
+//
+RESULT* CLIENT_STATE::file_info_to_result(FILE_INFO* fip) {
+    unsigned int i, j;
+    for (i=0; i<results.size(); i++) {
+        RESULT* rp = results[i];
+        if (rp->project != fip->project) continue;
+        for (j=0; j<rp->output_files.size(); j++) {
+            FILE_REF& fr = rp->output_files[j];
+            if (fr.file_info == fip) {
+                return rp;
+            }
+        }
+    }
+    return NULL;
+}

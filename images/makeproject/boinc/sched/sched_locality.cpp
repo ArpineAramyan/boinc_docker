@@ -20,12 +20,13 @@
 //
 // Currently this is specific to Einstein@home and is not generally usable.
 // There's a generic but more limited version, "limited locality scheduling":
-// http://boinc.berkeley.edu/trac/wiki/LocalityScheduling
+// https://github.com/BOINC/boinc/wiki/LocalityScheduling
 
 #include "config.h"
 
 #include <algorithm>
 #include <climits>
+#include <ctime>
 #include <vector>
 
 #include <cstdio>
@@ -1391,4 +1392,4 @@ void send_file_deletes() {
 // (7) there are no feasible results for the host, we are finished:
 // (7) exit.
 
-// (8) If addtional results are needed, return to step 4 above.
+// (8) If additional results are needed, return to step 4 above.

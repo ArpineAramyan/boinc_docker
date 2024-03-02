@@ -1,6 +1,6 @@
 // This file is part of BOINC.
 // http://boinc.berkeley.edu
-// Copyright (C) 2008 University of California
+// Copyright (C) 2023 University of California
 //
 // BOINC is free software; you can redistribute it and/or modify it
 // under the terms of the GNU Lesser General Public License
@@ -15,10 +15,8 @@
 // You should have received a copy of the GNU Lesser General Public License
 // along with BOINC.  If not, see <http://www.gnu.org/licenses/>.
 
-#if   defined(_WIN32) && !defined(__STDWX_H__)
+#if defined(_WIN32)
 #include "boinc_win.h"
-#elif defined(_WIN32) && defined(__STDWX_H__)
-#include "stdwx.h"
 #endif
 
 #include "diagnostics.h"
@@ -27,7 +25,6 @@
 #include "win_util.h"
 #include "str_replace.h"
 #include "str_util.h"
-
 
 /**
  * This function terminates a process by process id instead of a handle.
@@ -60,9 +57,9 @@ void chdir_to_data_dir() {
     DWORD   dwSize = 0;
 
     lReturnValue = RegOpenKeyExA(
-        HKEY_LOCAL_MACHINE, 
-        "SOFTWARE\\Space Sciences Laboratory, U.C. Berkeley\\BOINC Setup",  
-        0, 
+        HKEY_LOCAL_MACHINE,
+        "SOFTWARE\\Space Sciences Laboratory, U.C. Berkeley\\BOINC Setup",
+        0,
         KEY_READ,
         &hkSetupHive
     );
@@ -82,7 +79,7 @@ void chdir_to_data_dir() {
             (*lpszValue) = NULL;
 
             // Now get the data
-            lReturnValue = RegQueryValueExA( 
+            lReturnValue = RegQueryValueExA(
                 hkSetupHive,
                 "DATADIR",
                 NULL,
@@ -95,13 +92,13 @@ void chdir_to_data_dir() {
             // We need to get the size of the buffer needed
             dwSize = 0;
             lReturnValue = ExpandEnvironmentStringsA(lpszValue, NULL, dwSize);
-   
+
             if (lReturnValue) {
                 // Make the buffer big enough for the expanded string
                 lpszExpandedValue = (LPSTR) malloc(lReturnValue);
                 (*lpszExpandedValue) = NULL;
                 dwSize = lReturnValue;
-   
+
                 ExpandEnvironmentStringsA(lpszValue, lpszExpandedValue, dwSize);
 
                 SetCurrentDirectoryA(lpszExpandedValue);
@@ -140,22 +137,28 @@ std::string boinc_wide_to_ascii(const std::wstring& str) {
 // get message for given error
 //
 char* windows_format_error_string(
-    unsigned long dwError, char* pszBuf, int iSize
+    unsigned long dwError, char* pszBuf, int iSize ...
 ) {
     DWORD dwRet;
-    LPWSTR lpszTemp = NULL;
+    LPSTR lpszTemp = NULL;
 
-    dwRet = FormatMessageW(
+    va_list args;
+    va_start(args, iSize);
+    dwRet = FormatMessage(
         FORMAT_MESSAGE_ALLOCATE_BUFFER |
-        FORMAT_MESSAGE_FROM_SYSTEM |
-        FORMAT_MESSAGE_ARGUMENT_ARRAY,
+        FORMAT_MESSAGE_FROM_SYSTEM ,
         NULL,
         dwError,
         LANG_NEUTRAL,
+#ifdef wxUSE_GUI
         (LPWSTR)&lpszTemp,
+#else
+        (LPSTR)&lpszTemp,
+#endif
         0,
-        NULL
+        &args
     );
+    va_end(args);
 
     if (dwRet != 0) {
         // include the hex error code as well
@@ -164,9 +167,8 @@ char* windows_format_error_string(
             LocalFree((HLOCAL)lpszTemp);
         }
     } else {
-        strlcpy(pszBuf, "(unknown error)", iSize);
+        snprintf(pszBuf, iSize, "(unknown error) (%lu)", GetLastError());
     }
 
     return pszBuf;
 }
-

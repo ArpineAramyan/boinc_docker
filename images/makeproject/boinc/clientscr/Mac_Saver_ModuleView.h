@@ -1,6 +1,6 @@
 // This file is part of BOINC.
 // http://boinc.berkeley.edu
-// Copyright (C) 2018 University of California
+// Copyright (C) 2023 University of California
 //
 // BOINC is free software; you can redistribute it and/or modify it
 // under the terms of the GNU Lesser General Public License
@@ -23,15 +23,15 @@
 #import <Cocoa/Cocoa.h>
 
 
-@interface BOINC_Saver_ModuleView : ScreenSaverView 
+@interface BOINC_Saver_ModuleView : ScreenSaverView
 {
     IBOutlet id mConfigureSheet;		// our configuration sheet
     IBOutlet NSButton *mGoToBlankCheckbox;
     IBOutlet NSTextField *mBlankingTimeTextField;
     IBOutlet NSTextField *mDefaultPeriodTextField;
     IBOutlet NSTextField *mSciencePeriodTextField;
-    IBOutlet NSTextField *mChangePeriodTextField;    
-    
+    IBOutlet NSTextField *mChangePeriodTextField;
+
     int mVersion;               // the version of our prefs
     NSString *mBlankingTimeString;
     NSString *mDefaultPeriodString;
@@ -77,6 +77,7 @@ int             startBOINCSaver(void);
 int             getSSMessage(char **theMessage, int* coveredFreq);
 void            windowIsCovered();
 void            drawPreview(CGContextRef myContext);
+void            stopAllGFXApps(void);
 void            closeBOINCSaver(void);
 void            setDefaultDisplayPeriods(void);
 bool            getShow_default_ss_first();
@@ -94,6 +95,12 @@ void            launchedGfxApp(char * appPath, pid_t thePID, int slot);
 void            print_to_log_file(const char *format, ...);
 void            strip_cr(char *buf);
 void            PrintBacktrace(void);
+
+extern bool     gIsCatalina;
+extern bool     gIsHighSierra;
+extern bool     gIsMojave;
+extern bool     gIsSonoma;
+extern bool     gCant_Use_Shared_Offscreen_Buffer;
 
 #ifdef __cplusplus
 }    // extern "C"

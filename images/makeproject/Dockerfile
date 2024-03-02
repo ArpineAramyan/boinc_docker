@@ -68,7 +68,7 @@ RUN apt-get update \
 # the version of vboxwrapper/iso/appver installed is specified in
 # boinc2docker/boinc2docker.yml
 COPY boinc2docker /root/boinc2docker
-RUN /root/boinc2docker/boinc2docker_create_app --download_only
+#RUN /root/boinc2docker/boinc2docker_create_app --download_only
 
 #====================
 FROM base AS base-b2d
@@ -86,7 +86,6 @@ RUN apt-get update \
 
 COPY --from=b2d --chown=1000 /root/boinc2docker $HOME/boinc2docker 
 ENV PATH=$HOME/boinc2docker:$PATH
-
 
 
 #===========================
@@ -117,7 +116,7 @@ ONBUILD USER $BOINC_USER
 
 # build server
 ONBUILD RUN makeproject-step1.sh
-ONBUILD RUN test -z "$TAG" || boinc2docker_create_app --projhome $PROJECT_ROOT
+ONBUILD RUN test -z "$TAG" || boinc2docker_create_app
 ONBUILD CMD makeproject-step2.sh
 
 ONBUILD WORKDIR $PROJECT_ROOT

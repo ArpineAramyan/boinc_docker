@@ -17,14 +17,14 @@
 
 // Standalone utility to set up BOINC security owners, groups, permissions
 // usage:
-// first cd to the dir3ctory containing BOINCManager.app (usually /Applications)
+// first cd to the directory containing BOINCManager.app (usually /Applications)
 // then run this application from Terminal
 //
 
 //  SecurityUtility.cpp
 
 #include <sys/param.h>  // for MAXPATHLEN
-#include <unistd.h>     // for getwd, getlogin
+#include <unistd.h>     // for getwd
 
 #include <Carbon/Carbon.h>
 
@@ -39,15 +39,15 @@ int main(int argc, char *argv[]) {
         printf("Branding array has too few entries: %s\n", boincPath);
         return -1;
     }
-    
+
     err = CreateBOINCUsersAndGroups();
     if (err != noErr)
         return err;
 
-    err = AddAdminUserToGroups(getlogin());
+    err = AddAdminUserToGroups(getenv("USER"));
     if (err != noErr)
         return err;
-    
+
     boincPath[0] = 0;
     getwd(boincPath);
     //ShowSecurityError("Current Working Directory is %s", wd);

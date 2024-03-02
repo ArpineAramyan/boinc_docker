@@ -32,7 +32,7 @@ class output_options {
     var $nl2br;                // Convert newlines to <br>'s? (on)
     var $htmlitems;            // Convert special chars to HTML entities? (on)
     var $htmlscrub;            // Scrub "bad" HTML tags? (off)
-    var $highlight_terms;// Array of terms to be highlighted (off)    
+    var $highlight_terms;// Array of terms to be highlighted (off)
 
     // Constructor - set the defaults.
 
@@ -68,11 +68,11 @@ function output_transform($text, $options = NULL) {
         $options = new output_options; // Defaults in the class definition
     }
     if ($options->htmlitems) {
-        $text = htmlspecialchars($text);
+        $text = htmlspecialchars($text, ENT_COMPAT | ENT_HTML401 | ENT_SUBSTITUTE);
     }
     if (is_array($options->highlight_terms)) {
         $text = highlight_terms($text, $options->highlight_terms);
-    }    
+    }
 //    if ($options->htmlscrub) {
 //        $text = sanitize_html($text);
 //    }
@@ -186,7 +186,7 @@ function bb2html($text, $export=false) {
         "@\[quote=(.*?)\](.*?)\[/quote\]@is",
         "@\[quote\](.*?)\[/quote\]@is",
         "@\[list\](.*?)\[/list\]@is",
-        "@\[list=1\](.*?)\[/list\]@is",  
+        "@\[list=1\](.*?)\[/list\]@is",
         "@\[img\]$urlregex\[/img\]@is",
         "@\[sm_img\]$urlregex\[/sm_img\]@is",
         "@\[color=(?:\"?)(.{3,8})(?:\"?)\](.*?)\[/color\]@is",
@@ -197,7 +197,7 @@ function bb2html($text, $export=false) {
         "@\[github\](?:\#|ticket:)(\d+)\[/github\]@is",
         "@\[github\]wiki:(.*?)\[/github\]@is",
     );
-    
+
     // What the above tags are turned in to
     if ($export) {
         $htmltags = array (
@@ -224,7 +224,7 @@ function bb2html($text, $export=false) {
             "<a href=\"mailto:\\1\">\\1</a>",
             "<a href=\"mailto:\\1\">\\1</a>",
             "<a href=\"https://github.com/BOINC/boinc/issues/\\1\">#\\1</a>",
-            "<a href=\"https://github.com/BOINC/boinc-dev-doc/wiki/\\1\">\\1</a>",
+            "<a href=\"https://github.com/BOINC/boinc/wiki/\\1\">\\1</a>",
         );
     } else {
         $htmltags = array (
@@ -241,8 +241,8 @@ function bb2html($text, $export=false) {
             "<a href=\"http://\\2\" rel=\"nofollow\">http://\\2</a>",
             "<em>\\1 wrote:</em><blockquote>\\2</blockquote>",
             "<blockquote>\\1</blockquote>",
-            "<ul style=\"word-break:break-word;\">\\1</ul><p>",
-            "<ol style=\"word-break:break-word;\">\\1</ol><p>",
+            "<ul>\\1</ul><p>",
+            "<ol>\\1</ol><p>",
             "<img hspace=\"8\" class=\"img-responsive\" src=\"\\1\\2\"> ",
             "<img hspace=\"8\" width=400 src=\"\\1\\2\"> ",
             "<font color=\"\\1\">\\2</font>",
@@ -251,10 +251,10 @@ function bb2html($text, $export=false) {
             "<a href=\"mailto:\\1\">\\1</a>",
             "<a href=\"mailto:\\1\">\\1</a>",
             "<a href=\"https://github.com/BOINC/boinc/issues/\\1\">#\\1</a>",
-            "<a href=\"https://github.com/BOINC/boinc-dev-doc/wiki/\\1\">\\1</a>",
+            "<a href=\"https://github.com/BOINC/boinc/wiki/\\1\">\\1</a>",
         );
     }
-    
+
     // Do the actual replacing - iterations for nested items
     $lasttext = "";
     $i = 0;
@@ -265,6 +265,8 @@ function bb2html($text, $export=false) {
         $text = preg_replace($bbtags, $htmltags, $text);
         $i = $i + 1;
     }
+    $text = str_replace("<ul>", '<ul style="word-break:break-word;">', $text);
+    $text = str_replace("<ol>", '<ol style="word-break:break-word;">', $text);
     return $text;
 }
 

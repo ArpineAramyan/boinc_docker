@@ -1,6 +1,6 @@
 // This file is part of BOINC.
 // http://boinc.berkeley.edu
-// Copyright (C) 2008 University of California
+// Copyright (C) 2023 University of California
 //
 // BOINC is free software; you can redistribute it and/or modify it
 // under the terms of the GNU Lesser General Public License
@@ -59,12 +59,12 @@
 //  it may not use some GPUs that actually could be used.
 //
 //  Modified (as of 23 July 14) to allow coprocessors (OpenCL GPUs and OpenCL
-//  accelerators) from vendors other than original 3: NVIDIA, AMD and Intel.  
+//  accelerators) from vendors other than original 3: NVIDIA, AMD and Intel.
 //  For these original 3 GPU vendors, we still use the above approach, and the
 //  COPROC::type field contains a standardized vendor name "NVIDIA", "ATI" or
 //  "intel_gpu".  But for other, "new" vendors, we treat each device as a
 //  separate resource, creating an entry for each instance in the
-//  COPROCS::coprocs[] array and copying the device name COPROC::opencl_prop.name 
+//  COPROCS::coprocs[] array and copying the device name COPROC::opencl_prop.name
 //  into the COPROC::type field (instead of the vendor name.)
 
 #ifndef BOINC_COPROC_H
@@ -77,10 +77,7 @@
 #include "boinc_win.h"
 #endif
 
-#ifdef _USING_FCGI_
-#include "boinc_fcgi.h"
-#endif
-
+#include "boinc_stdio.h"
 #include "miofile.h"
 #include "error_numbers.h"
 #include "parse.h"
@@ -106,7 +103,7 @@
 #define PROC_TYPE_NVIDIA_GPU 1
 #define PROC_TYPE_AMD_GPU    2
 #define PROC_TYPE_INTEL_GPU  3
-#define PROC_TYPE_MINER_ASIC 4
+#define PROC_TYPE_APPLE_GPU  4
 #define NPROC_TYPES          5
 
 extern const char* proc_type_name(int);
@@ -119,6 +116,7 @@ extern int coproc_type_name_to_num(const char* name);
 #define GPU_TYPE_NVIDIA proc_type_name_xml(PROC_TYPE_NVIDIA_GPU)
 #define GPU_TYPE_ATI proc_type_name_xml(PROC_TYPE_AMD_GPU)
 #define GPU_TYPE_INTEL proc_type_name_xml(PROC_TYPE_INTEL_GPU)
+#define GPU_TYPE_APPLE proc_type_name_xml(PROC_TYPE_APPLE_GPU)
 
 // represents a requirement for a coproc.
 // This is a parsed version of the <coproc> elements in an <app_version>
@@ -136,7 +134,15 @@ struct PCI_INFO {
     int device_id;
     int domain_id;
 
-    PCI_INFO(): present(false), bus_id(0), device_id(0),domain_id(0) {}
+    void clear() {
+        present = false;
+        bus_id = 0;
+        device_id = 0;
+        domain_id = 0;
+    }
+    PCI_INFO() {
+        clear();
+    }
     void write(MIOFILE&);
     int parse(XML_PARSER&);
 };
@@ -153,13 +159,15 @@ struct COPROC {
     bool non_gpu;       // coproc is not a GPU
     double peak_flops;
     double used;        // how many are in use (used by client)
-    bool have_cuda;     // True if this GPU supports CUDA on this computer
-    bool have_cal;      // True if this GPU supports CAL on this computer
-    bool have_opencl;   // True if this GPU supports openCL on this computer
+    bool have_cuda;     // this GPU supports CUDA
+    bool have_cal;      // this GPU supports CAL
+    bool have_opencl;   // this GPU supports openCL
+    bool have_metal;
     double available_ram;
     bool specified_in_config;
         // If true, this coproc was listed in cc_config.xml
         // rather than being detected by the client.
+    COPROC_USAGE is_used;               // temp used in scan process
 
     // the following are used in both client and server for work-fetch info
     //
@@ -177,7 +185,8 @@ struct COPROC {
     double usage[MAX_COPROC_INSTANCES];
     double pending_usage[MAX_COPROC_INSTANCES];
 
-    // the device number of each instance
+    // The vendor-specific APIs (CUDA etc.) return instances in some order.
+    // We call an instance's order its  'device_num'.
     // These are not sequential if we omit instances (see above)
     //
     int device_nums[MAX_COPROC_INSTANCES];
@@ -196,48 +205,26 @@ struct COPROC {
 
     OPENCL_DEVICE_PROP opencl_prop;
 
+    COPROC(int){}
+    inline void clear() {
+        static const COPROC x(0);
+        *this = x;
+    }
+    COPROC(){
+        clear();
+    }
+
 #ifndef _USING_FCGI_
     void write_xml(MIOFILE&, bool scheduler_rpc=false);
     void write_request(MIOFILE&);
 #endif
     int parse(XML_PARSER&);
 
-    inline void clear() {
-        // can't just memcpy() - trashes vtable
-        type[0] = 0;
-        count = 0;
-        non_gpu = false;
-        peak_flops = 0;
-        used = 0;
-        have_cuda = false;
-        have_cal = false;
-        have_opencl = false;
-        specified_in_config = false;
-        req_secs = 0;
-        req_instances = 0;
-        opencl_device_count = 0;
-        estimated_delay = 0;
-        available_ram = 0;
-        for (int i=0; i<MAX_COPROC_INSTANCES; i++) {
-            device_nums[i] = 0;
-            instance_has_opencl[i] = false;
-            opencl_device_ids[i] = 0;
-            opencl_device_indexes[i] = 0;
-            running_graphics_app[i] = true;
-        }
-        device_num = 0;
-        memset(&opencl_prop, 0, sizeof(opencl_prop));
-        memset(&pci_info, 0, sizeof(pci_info));
-        last_print_time = 0;
-    }
     inline void clear_usage() {
         for (int i=0; i<count; i++) {
             usage[i] = 0;
             pending_usage[i] = 0;
         }
-    }
-    COPROC() {
-        clear();
     }
     int device_num_index(int n) {
         for (int i=0; i<count; i++) {
@@ -260,7 +247,7 @@ struct COPROC {
     inline bool bad_gpu_peak_flops(const char* source, std::string& msg) {
         if (peak_flops <= 0 || peak_flops > GPU_MAX_PEAK_FLOPS) {
             char buf[256];
-            sprintf(buf, "%s reported bad GPU peak FLOPS %f; using %f",
+            snprintf(buf, sizeof(buf), "%s reported bad GPU peak FLOPS %f; using %f",
                 source, peak_flops, GPU_DEFAULT_PEAK_FLOPS
             );
             msg = buf;
@@ -296,6 +283,15 @@ struct CUDA_DEVICE_PROP {
     double   textureAlignment;
     int   deviceOverlap;
     int   multiProcessorCount;
+
+    CUDA_DEVICE_PROP(int){}
+    void clear() {
+        static const CUDA_DEVICE_PROP x(0);
+        *this = x;
+    }
+    CUDA_DEVICE_PROP() {
+        clear();
+    }
 };
 
 typedef int CUdevice;
@@ -304,14 +300,12 @@ struct COPROC_NVIDIA : public COPROC {
     int cuda_version;  // CUDA runtime version
     int display_driver_version;
     CUDA_DEVICE_PROP prop;
-    COPROC_USAGE is_used;               // temp used in scan process
 
 #ifndef _USING_FCGI_
     void write_xml(MIOFILE&, bool scheduler_rpc);
 #endif
-    COPROC_NVIDIA(): COPROC() {
-        clear();
-    }
+    COPROC_NVIDIA(): COPROC() {clear();}
+    COPROC_NVIDIA(int): COPROC() {}
     void get(std::vector<std::string>& warnings);
     void correlate(
         bool use_all,
@@ -341,14 +335,12 @@ struct COPROC_ATI : public COPROC {
     bool amdrt_detected;
     CALdeviceattribs attribs;
     CALdeviceinfo info;
-    COPROC_USAGE is_used;               // temp used in scan process
 
 #ifndef _USING_FCGI_
     void write_xml(MIOFILE&, bool scheduler_rpc);
 #endif
-    COPROC_ATI(): COPROC() {
-        clear();
-    }
+    COPROC_ATI(int): COPROC() {}
+    COPROC_ATI(): COPROC() {clear();}
     void get(std::vector<std::string>& warnings);
     void correlate(
         bool use_all,
@@ -364,20 +356,34 @@ struct COPROC_ATI : public COPROC {
 struct COPROC_INTEL : public COPROC {
     char name[256];
     char version[50];
-    double global_mem_size;
-    COPROC_USAGE is_used;               // temp used in scan process
 
 #ifndef _USING_FCGI_
     void write_xml(MIOFILE&, bool scheduler_rpc);
 #endif
-    COPROC_INTEL(): COPROC() {
-        clear();
-    }
-    void get(std::vector<std::string>& warnings);
-    void correlate(
-        bool use_all,
-        std::vector<int>& ignore_devs
-    );
+    COPROC_INTEL(int): COPROC() {}
+    COPROC_INTEL(): COPROC() {clear();}
+    void get(std::vector<std::string>& ) {};
+    void correlate(bool , std::vector<int>& ) {};
+    void clear();
+    int parse(XML_PARSER&);
+    void set_peak_flops();
+    void fake(double ram, double avail_ram, int);
+};
+
+struct COPROC_APPLE : public COPROC {
+    char model[256];    // from metal, else OpenCL
+
+    // Metal info:
+    int ncores;
+    int metal_support;
+
+#ifndef _USING_FCGI_
+    void write_xml(MIOFILE&, bool scheduler_rpc);
+#endif
+    COPROC_APPLE(int): COPROC() {}
+    COPROC_APPLE(): COPROC() {clear();}
+    void get(std::vector<std::string>&);
+    void correlate(bool , std::vector<int>&);
     void clear();
     int parse(XML_PARSER&);
     void set_peak_flops();
@@ -399,6 +405,7 @@ struct COPROCS {
     COPROC_NVIDIA nvidia;
     COPROC_ATI ati;
     COPROC_INTEL intel_gpu;
+    COPROC_APPLE apple_gpu;
 
     void write_xml(MIOFILE& out, bool scheduler_rpc);
     void get(
@@ -431,7 +438,7 @@ struct COPROCS {
     int write_coproc_info_file(std::vector<std::string> &warnings);
     int read_coproc_info_file(std::vector<std::string> &warnings);
     int add_other_coproc_types();
-    
+
 #ifdef __APPLE__
     void opencl_get_ati_mem_size_from_opengl(std::vector<std::string> &warnings);
 #endif
@@ -487,6 +494,9 @@ struct COPROCS {
     inline bool have_intel_gpu() {
         return (intel_gpu.count > 0);
     }
+    inline bool have_apple_gpu() {
+        return (apple_gpu.count > 0);
+    }
     int add(COPROC& c) {
         if (n_rsc >= MAX_RSC) return ERR_BUFFER_OVERFLOW;
         for (int i=1; i<n_rsc; i++) {
@@ -513,7 +523,7 @@ struct COPROCS {
         case PROC_TYPE_NVIDIA_GPU: return &nvidia;
         case PROC_TYPE_AMD_GPU: return &ati;
         case PROC_TYPE_INTEL_GPU: return &intel_gpu;
-        case PROC_TYPE_MINER_ASIC: return lookup_type("miner_asic");
+        case PROC_TYPE_APPLE_GPU: return &apple_gpu;
         }
         return NULL;
     }

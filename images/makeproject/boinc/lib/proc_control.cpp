@@ -1,6 +1,6 @@
 // This file is part of BOINC.
 // http://boinc.berkeley.edu
-// Copyright (C) 2011 University of California
+// Copyright (C) 2020 University of California
 //
 // BOINC is free software; you can redistribute it and/or modify it
 // under the terms of the GNU Lesser General Public License
@@ -18,16 +18,14 @@
 #include <vector>
 #ifdef _WIN32
 #include "diagnostics.h"
-#ifdef __STDWX_H__
-#include "stdwx.h"
-#else
 #include "boinc_win.h"
 #include "win_util.h"
-#endif
 #else
 #include "config.h"
 #include <sys/types.h>
 #include <sys/wait.h>
+#include <sys/time.h>
+#include <sys/resource.h>
 #include <unistd.h>
 
 #if HAVE_CSIGNAL
@@ -102,9 +100,9 @@ void get_descendants(int pid, vector<int>& pids) {
 //
 int suspend_or_resume_threads(
     vector<int>pids, DWORD calling_thread_id, bool resume, bool check_exempt
-) { 
+) {
     HANDLE threads, thread;
-    THREADENTRY32 te = {0}; 
+    THREADENTRY32 te = {0};
     int retval = 0;
     DWORD n;
     static vector<DWORD> suspended_threads;
@@ -118,16 +116,16 @@ int suspend_or_resume_threads(
     fprintf(stderr, "\n");
 #endif
 
-    threads = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0); 
+    threads = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
     if (threads == INVALID_HANDLE_VALUE) {
         fprintf(stderr, "CreateToolhelp32Snapshot failed\n");
         return -1;
     }
- 
-    te.dwSize = sizeof(THREADENTRY32); 
-    if (!Thread32First(threads, &te)) { 
+
+    te.dwSize = sizeof(THREADENTRY32);
+    if (!Thread32First(threads, &te)) {
         fprintf(stderr, "Thread32First failed\n");
-        CloseHandle(threads); 
+        CloseHandle(threads);
         return -1;
     }
 
@@ -135,14 +133,14 @@ int suspend_or_resume_threads(
         suspended_threads.clear();
     }
 
-    do { 
+    do {
         if (check_exempt && !diagnostics_is_thread_exempt_suspend(te.th32ThreadID)) {
 #ifdef DEBUG
             fprintf(stderr, "thread is exempt\n");
 #endif
             continue;
         }
-#if 0
+#ifdef DEBUG
         fprintf(stderr, "thread %d PID %d %s\n",
             te.th32ThreadID, te.th32OwnerProcessID,
             precision_time_to_string(dtime())
@@ -174,14 +172,14 @@ int suspend_or_resume_threads(
         }
         if (n == -1) retval = -1;
         CloseHandle(thread);
-    } while (Thread32Next(threads, &te)); 
+    } while (Thread32Next(threads, &te));
 
-    CloseHandle (threads); 
+    CloseHandle (threads);
 #ifdef DEBUG
     fprintf(stderr, "end: %s\n", precision_time_to_string(dtime()));
 #endif
     return retval;
-} 
+}
 
 #else
 
@@ -236,7 +234,7 @@ void kill_descendants(int child_pid) {
             if (!any_process_exists(descendants)) {
                 return;
             }
-            sleep(1);
+            boinc_sleep(1);
         }
         kill_all(descendants);
         // kill any processes that might have been created
@@ -247,35 +245,45 @@ void kill_descendants(int child_pid) {
 }
 #endif
 
-// suspend/resume the descendants of the calling process
-// (or if pid==0, the calling process)
+// suspend/resume the descendants of the calling process.
+// Unix version lets you choose the stop signal:
+// SIGSTOP (the default) can't be caught.
+// SIGTSTP can be caught, but it has no effect for processes without a TTY.
+// So it's useful only for programs that are wrappers of some sort;
+// they must catch and handle it.
 //
+#ifdef _WIN32
 void suspend_or_resume_descendants(bool resume) {
     vector<int> descendants;
-#ifdef _WIN32
     int pid = GetCurrentProcessId();
     get_descendants(pid, descendants);
     suspend_or_resume_threads(descendants, 0, resume, false);
+}
 #else
+void suspend_or_resume_descendants(bool resume, bool use_tstp) {
+    vector<int> descendants;
     int pid = getpid();
     get_descendants(pid, descendants);
     for (unsigned int i=0; i<descendants.size(); i++) {
-        kill(descendants[i], resume?SIGCONT:SIGTSTP);
+        kill(descendants[i], resume?SIGCONT:(use_tstp?SIGTSTP:SIGSTOP));
     }
-#endif
 }
+#endif
 
-// used by the wrapper
+// Suspend/resume the given process; used by the wrapper.
+// See signal comment above.
 //
-void suspend_or_resume_process(int pid, bool resume) {
 #ifdef _WIN32
+void suspend_or_resume_process(int pid, bool resume) {
     vector<int> pids;
     pids.push_back(pid);
     suspend_or_resume_threads(pids, 0, resume, false);
-#else
-    ::kill(pid, resume?SIGCONT:SIGTSTP);
-#endif
 }
+#else
+void suspend_or_resume_process(int pid, bool resume, bool use_tstp) {
+    ::kill(pid, resume?SIGCONT:(use_tstp?SIGTSTP:SIGSTOP));
+}
+#endif
 
 // return OS-specific value associated with priority code
 //
@@ -291,11 +299,11 @@ int process_priority_value(int priority) {
     return 0;
 #else
     switch (priority) {
-    case PROCESS_PRIORITY_LOWEST: return 19;
-    case PROCESS_PRIORITY_LOW: return 10;
-    case PROCESS_PRIORITY_NORMAL: return 0;
-    case PROCESS_PRIORITY_HIGH: return -10;
-    case PROCESS_PRIORITY_HIGHEST: return -16;
+    case PROCESS_PRIORITY_LOWEST: return PROCESS_IDLE_PRIORITY;
+    case PROCESS_PRIORITY_LOW: return PROCESS_MEDIUM_PRIORITY;
+    case PROCESS_PRIORITY_NORMAL: return PROCESS_NORMAL_PRIORITY;
+    case PROCESS_PRIORITY_HIGH: return PROCESS_ABOVE_NORMAL_PRIORITY;
+    case PROCESS_PRIORITY_HIGHEST: return PROCESS_HIGH_PRIORITY;
     }
     return 0;
 #endif

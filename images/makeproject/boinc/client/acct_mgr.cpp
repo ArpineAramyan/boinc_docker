@@ -56,14 +56,14 @@ static const char *run_mode_name[] = {"", "always", "auto", "never"};
 int ACCT_MGR_OP::do_rpc(ACCT_MGR_INFO& _ami, bool _via_gui) {
     int retval;
     unsigned int i;
-    char buf[256];
+    char buf[1024];
 
     ami = _ami;
 
     error_num = ERR_IN_PROGRESS;
-    error_str = "";
+    error_str.clear();
     via_gui = _via_gui;
-    global_prefs_xml = "";
+    global_prefs_xml.clear();
 
     // if null URL, detach from current AMS
     //
@@ -185,7 +185,7 @@ int ACCT_MGR_OP::do_rpc(ACCT_MGR_INFO& _ami, bool _via_gui) {
             p->disk_usage,
             p->disk_share
         );
-        
+
         // send work and starvation-related info
         //
         if (ami.dynamic) {
@@ -251,6 +251,17 @@ int ACCT_MGR_OP::do_rpc(ACCT_MGR_INFO& _ami, bool _via_gui) {
     }
     gstate.time_stats.write(mf, true);
     gstate.net_stats.write(mf);
+
+#ifndef SIM
+    // send task descriptions if requested by AM
+    //
+    if (ami.send_tasks_all || ami.send_tasks_active) {
+        mf.printf("<results>\n");
+        gstate.write_tasks_gui(mf, !ami.send_tasks_all);
+        mf.printf("</results>\n");
+    }
+#endif
+
     fprintf(f, "</acct_mgr_request>\n");
     fclose(f);
     snprintf(buf, sizeof(buf), "%srpc.php", ami.master_url);
@@ -287,9 +298,9 @@ int AM_ACCOUNT::parse(XML_PARSER& xp) {
     detach_when_done.init();
     suspend.init();
     abort_not_started.init();
-    url = "";
+    url.clear();
     safe_strcpy(url_signature, "");
-    authenticator = "";
+    authenticator.clear();
     resource_share.init();
 
     while (!xp.get_tag()) {
@@ -381,13 +392,15 @@ int ACCT_MGR_OP::parse(FILE* f) {
     XML_PARSER xp(&mf);
 
     accounts.clear();
-    error_str = "";
+    error_str.clear();
     error_num = 0;
     repeat_sec = 0;
     safe_strcpy(host_venue, "");
     safe_strcpy(ami.opaque, "");
     ami.no_project_notices = false;
     ami.dynamic = false;
+    ami.send_tasks_all = false;
+    ami.send_tasks_active = false;
     rss_feeds.clear();
     if (!xp.parse_start("acct_mgr_reply")) return ERR_XML_PARSE;
     while (!xp.get_tag()) {
@@ -416,6 +429,8 @@ int ACCT_MGR_OP::parse(FILE* f) {
         if (xp.parse_string("error_msg", error_str)) continue;
         if (xp.parse_double("repeat_sec", repeat_sec)) continue;
         if (xp.parse_bool("dynamic", ami.dynamic)) continue;
+        if (xp.parse_bool("send_tasks_active", ami.send_tasks_active)) continue;
+        if (xp.parse_bool("send_tasks_all", ami.send_tasks_all)) continue;
         if (xp.parse_string("message", message)) {
             msg_printf(NULL, MSG_INFO, "Account manager: %s", message.c_str());
             continue;
@@ -486,7 +501,7 @@ int ACCT_MGR_OP::parse(FILE* f) {
 }
 
 static inline bool is_weak_auth(const char* auth) {
-    return (strstr(auth, "_") != NULL);
+    return (strchr(auth, '_') != NULL);
 }
 
 #ifdef SIM
@@ -627,6 +642,8 @@ void ACCT_MGR_OP::handle_reply(int http_op_retval) {
         safe_strcpy(gstate.acct_mgr_info.authenticator, ami.authenticator);
         gstate.acct_mgr_info.no_project_notices = ami.no_project_notices;
         gstate.acct_mgr_info.dynamic = ami.dynamic;
+        gstate.acct_mgr_info.send_tasks_active = ami.send_tasks_active;
+        gstate.acct_mgr_info.send_tasks_all = ami.send_tasks_all;
 
         // process projects
         //
@@ -655,12 +672,11 @@ void ACCT_MGR_OP::handle_reply(int http_op_retval) {
                                     "Received new authenticator from account manager"
                                 );
                             } else {
-                                // otherwise skip this update
+                                // otherwise keep using the old one
                                 //
                                 msg_printf(pp, MSG_INFO,
                                     "Already attached to a different account"
                                 );
-                                continue;
                             }
                         }
                     }
@@ -724,6 +740,10 @@ void ACCT_MGR_OP::handle_reply(int http_op_retval) {
             } else {
                 // here we don't already have the project.
                 //
+                if (acct.detach || (acct.detach_when_done.present && acct.detach_when_done.value)) {
+                    continue;
+                }
+
                 retval = check_string_signature2(
                     acct.url.c_str(), acct.url_signature, ami.signing_key, verified
                 );
@@ -741,32 +761,30 @@ void ACCT_MGR_OP::handle_reply(int http_op_retval) {
                     continue;
                 }
 
-                // Attach to it, unless the acct mgr is telling us to detach
+                // Attach to it
                 //
-                if (!acct.detach && !(acct.detach_when_done.present && acct.detach_when_done.value)) {
-                    msg_printf(NULL, MSG_INFO,
-                        "Attaching to %s", acct.url.c_str()
-                    );
-                    gstate.add_project(
-                        acct.url.c_str(), acct.authenticator.c_str(), "", true
-                    );
-                    pp = gstate.lookup_project(acct.url.c_str());
-                    if (pp) {
-                        for (int j=0; j<MAX_RSC; j++) {
-                            pp->no_rsc_ams[j] = acct.no_rsc[j];
-                        }
-                        if (acct.dont_request_more_work.present) {
-                            pp->dont_request_more_work = acct.dont_request_more_work.value;
-                        }
-                        if (acct.suspend.present && acct.suspend.value) {
-                            pp->suspend();
-                        }
-                    } else {
-                        msg_printf(NULL, MSG_INTERNAL_ERROR,
-                            "Failed to add project: %s",
-                            acct.url.c_str()
-                        );
+                msg_printf(NULL, MSG_INFO,
+                    "Attaching to %s", acct.url.c_str()
+                );
+                gstate.add_project(
+                    acct.url.c_str(), acct.authenticator.c_str(), "", "", true
+                );
+                pp = gstate.lookup_project(acct.url.c_str());
+                if (pp) {
+                    for (int j=0; j<MAX_RSC; j++) {
+                        pp->no_rsc_ams[j] = acct.no_rsc[j];
                     }
+                    if (acct.dont_request_more_work.present) {
+                        pp->dont_request_more_work = acct.dont_request_more_work.value;
+                    }
+                    if (acct.suspend.present && acct.suspend.value) {
+                        pp->suspend();
+                    }
+                } else {
+                    msg_printf(NULL, MSG_INTERNAL_ERROR,
+                        "Failed to add project: %s",
+                        acct.url.c_str()
+                    );
                 }
             }
         }
@@ -781,13 +799,18 @@ void ACCT_MGR_OP::handle_reply(int http_op_retval) {
         // process prefs if any
         //
         if (!global_prefs_xml.empty()) {
-            retval = gstate.save_global_prefs(
-                global_prefs_xml.c_str(), ami.master_url, ami.master_url
+            double mod_time = GLOBAL_PREFS::parse_mod_time(
+                global_prefs_xml.c_str()
             );
-            if (retval) {
-                msg_printf(NULL, MSG_INTERNAL_ERROR, "Can't save global prefs");
+            if (mod_time > gstate.global_prefs.mod_time) {
+                retval = gstate.save_global_prefs(
+                    global_prefs_xml.c_str(), ami.master_url, ami.master_url
+                );
+                if (retval) {
+                    msg_printf(NULL, MSG_INTERNAL_ERROR, "Can't save global prefs");
+                }
+                read_prefs = true;
             }
-            read_prefs = true;
         }
 
         // process prefs if prefs or venue changed
@@ -937,6 +960,8 @@ void ACCT_MGR_INFO::clear() {
     starved_rpc_backoff = 0;
     starved_rpc_min_time = 0;
     dynamic = false;
+    send_tasks_active = false;
+    send_tasks_all = false;
 }
 
 ACCT_MGR_INFO::ACCT_MGR_INFO() {
@@ -1077,6 +1102,7 @@ int ACCT_MGR_INFO::init() {
 #define STARVED_RPC_DELAY   600
     // do RPC after this much starvation
 
+// See if we need to contact the account manager.
 // called once a second
 //
 bool ACCT_MGR_INFO::poll() {
@@ -1085,9 +1111,10 @@ bool ACCT_MGR_INFO::poll() {
         return false;
     }
 
+    // see if time for a periodic RPC
+    //
     if (gstate.now > next_rpc_time) {
-
-        // default synch period is 1 day
+        // default synch period is 1 day; the AM can override this
         //
         next_rpc_time = gstate.now + 86400;
         gstate.acct_mgr_op.do_rpc(*this, false);
@@ -1095,13 +1122,17 @@ bool ACCT_MGR_INFO::poll() {
     }
 
     // if not dynamic AM, we're done
+    // ("dynamic" means the AM can change set of projects)
     //
     if (!dynamic) {
         return false;
     }
 
-    // See if some resource is starved with the current set of projects,
-    // and if so possibly do a "starved" RPC asking for different projects
+    // it's possible that the set of projects given us by the AM
+    // is starving a resources
+    // e.g. those projects don't currently have jobs, or are down.
+    // In that case contact the AM, asking for other projects.
+    // Do this with exponential backoff to avoid overloading the AM
 
     // do this check once a minute
     //
@@ -1110,14 +1141,35 @@ bool ACCT_MGR_INFO::poll() {
         return false;
     }
     idle_timer = 0;
-    get_nidle();
-    if (any_resource_idle()) {
+    if (n_idle_resources()>0) {
+        if (log_flags.work_fetch_debug) {
+            msg_printf(NULL, MSG_INFO,
+                "[work_fetch] Using dynamic AM and some device is idle"
+            );
+        }
+
+        // "first_starved" is the time when starvation began.
+        // Let 10 min pass before contacting the AM
+        // (e.g. in case a scheduler request fails for some reason)
+
         if (first_starved == 0) {
             first_starved = gstate.now;
             starved_rpc_backoff = STARVED_RPC_DELAY;
             starved_rpc_min_time = gstate.now + STARVED_RPC_DELAY;
+            if (log_flags.work_fetch_debug) {
+                msg_printf(NULL, MSG_INFO,
+                    "[work_fetch] First time - delaying RPC for %d sec",
+                    STARVED_RPC_DELAY
+                );
+            }
         } else {
             if (gstate.now < starved_rpc_min_time) {
+                if (log_flags.work_fetch_debug) {
+                    msg_printf(NULL, MSG_INFO,
+                        "[work_fetch] AM RPC backed off for %.0f sec",
+                        starved_rpc_min_time - gstate.now
+                    );
+                }
                 return false;
             }
             msg_printf(NULL, MSG_INFO,
