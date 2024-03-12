@@ -1,5 +1,6 @@
+#!/usr/bin/env python
+
 import argparse
-import time
 import pwd
 import os
 from functools import partial
@@ -12,7 +13,8 @@ from shutil import copy
 import stat
 from os.path import join, exists, basename, dirname, abspath
 import random
-from Boinc.create_work import add_create_work_args, read_create_work_args, create_work, projdir, dir_hier_path
+import tempfile
+import json
 
 sh = lambda cmd: subprocess.check_output(['sh','-c',cmd])
 
@@ -212,56 +214,96 @@ def get_image_id(image):
 _tmpdir=[None]
 def tmpdir():
     if _tmpdir[0] is None:
-          _tmpdir[0] = mkdtemp()
+          _tmpdir[0] = tempfile.mkdtemp()
     return _tmpdir[0]
 
+def get_manifest(image_path):
+    return json.load(tarfile.open(image_path).extractfile('manifest.json'))
 
 #save image and make
-def make_image (image):
-	try:
-		image_id = get_image_id(image)
-	except CalledProcessError as e:
-		if 'No such image' in e.output:
-			get_image = "docker pull " + image
-			subprocess.call(get_image)
-			image_id = get_image_id(image)
-		else:
-			raise
+def create_image (app_name, image, input_files):
 
-	image_filename_tar = "image_" + image_id + ".tar.manual.gz"
-	#the function takes a name of the input fule and the absolute path of the root of the download hierarchy
-	#and returns the absolute path of the file in the hierarchy
-	image_path = dir_hier_path(image_filename)
+        path="/home/boincadm/project/docker_image"
+        os.mkdir(path)
 
-	if exists(image_path):
-		#get description of layers and image
-		manifest = get_manifest(image_path)
-	else:
-		#save docker image, than extracts all contents from tar archive
-		#that is being piped in through stdin and then stores them in
-		#the current directory specified by
-		save_docker_image = "docker save " + image + "| tar xf - -C" + tmpdir()
+        path = path + "/" + app_name
+        os.mkdir(path)
+        
+        try:
+              image_id = get_image_id(image)
+        except subprocess.CalledProcessError as e:
+              if 'No such image' in e.output:
+                 get_image = "docker pull " + image
+                 subprocess.call(get_image, shell=True)
+                 image_id = get_image_id(image)
+              else:
+                 raise
 
-		subprocess.call(save_docker_image, shell=True)
-		manifest = json.load(open(join(tmpdir(), 'manifest.json')))
+        image_filename_tar = "image_" + image_id + ".tar"
+        image_path = path + "/" + image_filename_tar
 
-	for layer in manifest[0]['Layers']:
-		layer_id = split(layer)[0]
-		layer_filename_tar = "layer_" + layer_id + ".tar.manual.gz"
-		layer_path = dir_hier_path(layer_filename)
-
-		#add layers of the image to input files
-
-	#add image to input_files
+        if exists(image_path):
+             #get description of layers and image
+             manifest = get_manifest(image_path)
+        else:
+             #save docker image, than extracts all contents from tar archive
+             #that is being piped in through stdin and then stores them in
+             #the current directory specified by
+             save_docker_image = "docker save " + image + "| tar xf - -C" + tmpdir()
+             subprocess.call(save_docker_image, shell=True)
+             manifest = json.load(open(join(tmpdir(), 'manifest.json')))
 
 
-def make_docker_script(appfolder, app_name):
+        for layer in manifest[0]['Layers']:
+             layer_id = layer.split("/")[0]
+             layer_filename_tar = "layer_" + layer_id + ".tar"
+             layer_path = path + "/" + layer_filename_tar
+
+             #create tar file for layers of the image in verbose mode
+             print ("Creating tar layer archive %s"%layer_id[:12])
+             layer_tar = "tar cvf " + layer_path + " -C " + tmpdir() + " " + layer_id
+             sh(layer_tar)
+             print ("Creating gzip archive for layer %s"%layer_id[:12])
+             layer_zip = "gzip -nfS .manual.gz " + layer_path
+             sh(layer_zip)
+             input_files.append(layer_path + ".manual.gz")
+
+
+        #create tar file for image in verbose mode, it consists of image_id, manifest.json and repository
+        print ("Creating tar image archive %s"%image_id[:12])
+        image_tar = "tar cvf " + image_path + " -C " + tmpdir() + " " + image_id + ".json " + "manifest.json repositories"
+        sh(image_tar)
+        print ("Creating gzip archive for image %s"%image_id[:12])
+        image_zip = "gzip -nfS .manual.gz " + image_path
+        sh(image_zip)
+        input_files.append(image_path + ".manual.gz")
+
+        stage_directory = "/home/boincadm/project/bin/stage_file " + path
+        subprocess.call(stage_directory, shell=True)
+
+        return 0
+
+
+def make_docker_script(appfolder, app_name, image):
 
 	fmt = partial(lambda s,f: s.format(**dict(globals(),**f.f_locals)),f=currentframe())
 
 	script = fmt(dedent("""#!/bin/sh
-		docker ps -a
-		docker image list
+              #create temporary directory for image load
+              mkdir -p ./image/combined
+
+              #the command unzip all .tar.manual.gz files in directory docker_image and extracts them to the directory image
+              for f in ./*.tar.manual.gz; do [ -e $f ] && gunzip -c $f > ./image/$(basename $f .manual.gz); done
+
+              #the command collects all tar files in docker_image and image directories, extracts their contents and combines them into a single directory, named image/combined
+              cat $(for f in ./*.tar ./image/*.tar; do [ -e $f ] && echo $f; done) | tar xi -C ./image/combined
+
+              rm  ./image/*.tar
+              tar cf - -C ./image/combined . | docker load
+              rm -rf ./image
+
+              docker run --rm {image}
+
 	"""))
 
 	docker_script_path = appfolder + "/" + app_name
@@ -294,7 +336,6 @@ def add_new_app_to_project(app_name):
 	with open("project.xml", "w") as project_config:
 		project_config.writelines(contents)
 
-# def create_input_files():
 
 def create_new_plan_class(plan_class_name, plan_class_args):
 
@@ -302,25 +343,25 @@ def create_new_plan_class(plan_class_name, plan_class_args):
     plan_class_line = "     <plan_class>\n" + "        <name>" + plan_class_name + "</name>\n"
     gpu_lib_type = plan_class_line + "        <cuda/>\n" if plan_class_args['gpu_type'] == "nvidia" else plan_class_line + "        <cal/>" if plan_class_args['gpu_type'] == "amd" else "none"
     if (plan_class_args['gpu_type'] != 'none'):
-        plan_class_line = plan_class_line + "        <gpu_type>" + plan_class_args['gpu_type'] + "</gpu_type>\n"
-        if (plan_class_args['ngpus'] != 0):
-            plan_class_line = plan_class_line + "        <ngpus>" + plan_class_args['ngpus'] + "</ngpus>\n"
-        if (plan_class_args['min_gpu_ram_mb'] != 0):
-            plan_class_line = plan_class_line + "        <min_gpu_ram_mb>" + plan_class_args['min_gpu_ram_mb'] + "</min_gpu_ram_mb>\n"
-        if (plan_class_args['gpu_ram_used_mb'] != 0):
-            plan_class_line = plan_class_line + "        <gpu_ram_used_mb>" + plan_class_args['gpu_ram_used_mb'] + "</gpu_ram_used_mb>\n"
-        if (plan_class_args['gpu_type'] == "amd" and plan_class_args['use_ati_libs']):
-            plan_class_line = plan_class_line + "        <need_ati_libs/>\n"
-        if (plan_class_args['gpu_type'] == "amd" and plan_class_args['use_amd_libs']):
-            plan_class_line = plan_class_line + "        <need_amd_libs/>\n"
-        if (plan_class_args['driver_versions'][0] != '0'):
-            plan_class_line = plan_class_line + "        <min_driver_version>" + plan_class_args['driver_versions'][0] + "<min_driver_version/>\n"
-        if (plan_class_args['driver_versions'][1] != '0'):
-            plan_class_line =  plan_class_line + "        <max_driver_version>" + plan_class_args['driver_versions'][1] + "<max_driver_version/>\n"
-        if (plan_class_args['gpu_type'] == "nvidia" and plan_class_args['cuda_versions'][0] != '0'):
-            plan_class_line =  plan_class_line + "        <min_cuda_version>" + plan_class_args['cuda_versions'][0] + "<min_cuda_version/>\n"
-        if (plan_class_args['gpu_type'] == "nvidia" and plan_class_args['cuda_versions'][1] != '0'):
-            plan_class_line =  plan_class_line + "        <max_cuda_version>" + plan_class_args['cuda_versions'][1] + "<max_cuda_version/>\n"
+          plan_class_line = plan_class_line + "        <gpu_type>" + plan_class_args['gpu_type'] + "</gpu_type>\n"
+          if (plan_class_args['ngpus'] != 0):
+             plan_class_line = plan_class_line + "        <ngpus>" + plan_class_args['ngpus'] + "</ngpus>\n"
+          if (plan_class_args['min_gpu_ram_mb'] != 0):
+             plan_class_line = plan_class_line + "        <min_gpu_ram_mb>" + plan_class_args['min_gpu_ram_mb'] + "</min_gpu_ram_mb>\n"
+          if (plan_class_args['gpu_ram_used_mb'] != 0):
+             plan_class_line = plan_class_line + "        <gpu_ram_used_mb>" + plan_class_args['gpu_ram_used_mb'] + "</gpu_ram_used_mb>\n"
+          if (plan_class_args['gpu_type'] == "amd" and plan_class_args['use_ati_libs']):
+             plan_class_line = plan_class_line + "        <need_ati_libs/>\n"
+          if (plan_class_args['gpu_type'] == "amd" and plan_class_args['use_amd_libs']):
+             plan_class_line = plan_class_line + "        <need_amd_libs/>\n"
+          if (plan_class_args['driver_versions'][0] != '0'):
+             plan_class_line = plan_class_line + "        <min_driver_version>" + plan_class_args['driver_versions'][0] + "<min_driver_version/>\n"
+          if (plan_class_args['driver_versions'][1] != '0'):
+             plan_class_line =  plan_class_line + "        <max_driver_version>" + plan_class_args['driver_versions'][1] + "<max_driver_version/>\n"
+          if (plan_class_args['gpu_type'] == "nvidia" and plan_class_args['cuda_versions'][0] != '0'):
+             plan_class_line =  plan_class_line + "        <min_cuda_version>" + plan_class_args['cuda_versions'][0] + "<min_cuda_version/>\n"
+          if (plan_class_args['gpu_type'] == "nvidia" and plan_class_args['cuda_versions'][1] != '0'):
+             plan_class_line =  plan_class_line + "        <max_cuda_version>" + plan_class_args['cuda_versions'][1] + "<max_cuda_version/>\n"
 
     if (plan_class_args['min_ncpus'] > 0 ):
         plan_class_line = plan_class_line + "        <min_ncpus>" + plan_class_args['min_ncpus'] + "<min_ncpus/>\n"
@@ -391,7 +432,7 @@ def add_new_app(app_name, image, plan_class_name):
             print("create docker script")
 
             # create docker script
-            make_docker_script(appfolder, app_name)
+            make_docker_script(appfolder, app_name, image)
             os.chown(appfolder + "/" + app_name, uid, gid)
 
             print("create job file")
@@ -451,46 +492,47 @@ def add_new_app(app_name, image, plan_class_name):
             os.chown("/home/boincadm/project/download/wrapper_" + wrapper[i] + "_" + i + ".exe", uid, gid)
 
 def create_input_files(input_files):
-	input_files_path = "/home/boincadm/project/input"
-	input = open(input_files_path, "w")
-	input.write(input_files)
-	input.close()
+	for i in input_files:
+		stage_input_files = "/home/boincadm/project/bin/stage_file" + i
+		subprocess.call(stage_input_files, shell=True)
+	return 0
 
-	return input_files_path
+def create_new_job(app_name, image, new, plan_class_name, plan_class_new, plan_class_args, input_files):
+	if plan_class_new:
+		create_new_plan_class(plan_class_name, plan_class_args)
 
-def create_new_job(app_name, input_files, image, new, plan_class_name, plan_class_new, plan_class_args):
-    if plan_class_new:
-        create_new_plan_class(plan_class_name, plan_class_args)
-    if new:
-        add_new_app(app_name, image, plan_class_name)
+	if new:
+		add_new_app(app_name, image, plan_class_name)
 
-    input_files_path = create_input_files(input_files)
-    random_string = ""
-    for i in [0, 1, 2, 3, 4]:
-        random_string = random_string + random.choice("abcdefghijklmnopqrstuvwxyz")
+	create_image(app_name, image, input_files)
 
-    wu_name = app_name + "_" + random_string
+	create_input_files(input_files)
+	random_string = ""
+	for i in [0, 1, 2, 3, 4]:
+		random_string = random_string + random.choice("abcdefghijklmnopqrstuvwxyz")
 
-    create_work_command = "/home/boincadm/project/bin/create_work --appname " + app_name + " --wu_name " + wu_name + " input"
+	input_files_names = ""
+	last_item = input_files[-1]
+	for i in input_files:
+		if (i != last_item):
+			input_files_names = input_files_names + i  + ", "
+		else:
+			input_files_names = input_files_names + i
 
-    subprocess.call(create_work_command, shell=True)
+	wu_name = app_name + "_" + random_string
+
+	create_work_command = "/home/boincadm/project/bin/create_work --appname " + app_name + " --wu_name " + wu_name + input_files_names
+
+	subprocess.call(create_work_command, shell=True)
+		
+	return 0
 
 if __name__=='__main__':
     parser = argparse.ArgumentParser(prog='create_new_job')
     parser.add_argument('--appname', default='boinc_docker', help='appname (default: boinc2docker)')
     parser.add_argument('--new_app', action='store_true', help='add new application to the BOINC server')
-    parser.add_argument('--input_files', default='hello', help='input_files (default: hello)' )
     parser.add_argument('--image', default='hello-world', help='docker image to run (default: hello-world)')
     parser.add_argument('--plan_class_new', action='store_true', help='add new plan class to the BOINC server, if mentioned with flag new_app, than the application will be created with new specified plan class')
-    parser.add_argument('--plan_class_name', default='standart', help='name of the plan class')
-    parser.add_argument('--gpu_type', default='none', choises=['nvidia', 'amd'], help='type of the gpu')
-    parser.add_argument('--min_gpu_ram_mb', default='0', help='minimum amount of GPU RAM')
-    parser.add_argument('--gpu_ram_used_mb', default='0', help='requirement of this much available GPU RAM')
-    parser.add_argument('--ngpus', default=0, help='amount of gpus to use')
-    parser.add_argument('--driver_versions', default=['0','0'], help='range of available gpu driver versions' )
-    parser.add_argument('--cuda_versions', default=['0','0'], help='range of available cuda versions, the flag is used only for nvidia gpus' )
-    parser.add_argument('--use_ati_libs', action='store_true', help='require libraries named ati, the flag is used for ATI/AMD gpus')
-    parser.add_argument('--use_amd_libs', action='store_true', help='require libraries named amd, the flag is used for ATI/AMD gpus')
     parser.add_argument('--plan_class_name', default='standart', help='name of the plan class')
     parser.add_argument('--gpu_type', default='none', choices=['nvidia', 'amd'], help='type of the gpu')
     parser.add_argument('--min_gpu_ram_mb', default=0, help='minimum amount of GPU RAM in MB')
@@ -504,9 +546,8 @@ if __name__=='__main__':
     parser.add_argument('--max_threads', default=0, help='maximal amount of threads to use')
     parser.add_argument('--mem_usage_base_mb', default=0, help='memmory usage')
     parser.add_argument('--mem_usage_per_cpu_mb', default=0, help='if specified, estimated memory usage is X + NY, where X is mem_usage_base_mb, N is amount of processors, Y is mem_usage_per_cpu_mb')
+    parser.add_argument('--input_files', type=list_of_strings, help='list of input_files for the job')
     args = parser.parse_args()
 
     plan_class_args = {'gpu_type': args.gpu_type, 'min_gpu_ram_mb':args.min_gpu_ram_mb, 'gpu_ram_used_mb':args.gpu_ram_used_mb, 'ngpus':args.ngpus, 'driver_versions':args.driver_versions, 'cuda_versions':args.cuda_versions, 'use_ati_libs':args.use_ati_libs, 'use_amd_libs': args.use_amd_libs, 'min_ncpus':args.min_ncpus, 'max_threads':args.max_threads, 'mem_usage_base_mb':args.mem_usage_base_mb, 'mem_usage_per_cpu_mb':args.mem_usage_per_cpu_mb}
-
-    create_new_job(app_name=args.appname, input_files=args.input_files, image=args.image, new=args.new, plan_class_name=args.plan_class_name, plan_class_new=args.plan_class_new, plan_class_args=plan_class_args)
-
+    create_new_job(app_name=args.appname, input_files=args.input_files, image=args.image, new=args.new, plan_class_name=args.plan_class_name, plan_class_new=args.plan_class_new, plan_class_args=plan_class_args, input_files=args.input_files)
