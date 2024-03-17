@@ -116,7 +116,7 @@ ONBUILD USER $BOINC_USER
 
 # build server
 ONBUILD RUN makeproject-step1.sh
-ONBUILD RUN test -z "$TAG" || boinc2docker_create_app
+ONBUILD RUN test -z "$TAG" || boinc2docker_create_project
 ONBUILD CMD makeproject-step2.sh
 
 ONBUILD WORKDIR $PROJECT_ROOT
