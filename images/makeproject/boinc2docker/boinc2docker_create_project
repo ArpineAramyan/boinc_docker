@@ -1,0 +1,64 @@
+#!/usr/bin/env python
+
+import argparse
+import sys
+from os import fchmod, environ, chmod, makedirs as _makedirs
+from os.path import join, exists, basename, dirname, abspath
+import yaml
+from zipfile import ZipFile
+from functools import partial
+from subprocess import check_output
+from shutil import copy as _copy
+from distutils.dir_util import copy_tree
+import xml.etree.ElementTree as et
+from xml.dom import minidom
+from textwrap import dedent
+import os
+import stat
+
+rootdir=dirname(abspath(__file__))
+
+fmt = partial(lambda s,l: s.format(**l),l=locals())
+
+def makedirs(d):
+    if not exists(d): _makedirs(d)
+
+defaults = {"tmpdir":rootdir + "/build", "projhome":"/home/boincadm/project"}
+
+# merge stuff into plan_class_spec.xml and project.xml and config.xml
+
+def xmlmerge(src,dst,idkey='name',mergeat='./'):
+    """
+    Merge the XML elements from the string `src` into the file at filename
+    `dst`. Merges only at the first level and compares elements via their
+    child tag `idkey`.
+    """
+    dtree=et.parse(dst)
+    droot=dtree.getroot()
+    for sc in et.fromstring(src).findall(mergeat):
+        for dc in droot.findall(mergeat+sc.tag):
+            if dc.find(idkey).text==sc.find(idkey).text: break
+        else:
+            droot.find(mergeat.rstrip('/')).append(sc)
+
+    #from boincxml.py
+    def strip_white_space(node):
+        for child in node.childNodes[:]:
+            if child.nodeType == child.TEXT_NODE:
+                child.data = child.data.strip()
+                if not child.data: node.removeChild(child)
+            else:
+                strip_white_space(child)
+        return node
+
+    open(dst,'w').write(strip_white_space(minidom.parseString(et.tostring(droot))).toprettyxml(indent=" "*4).replace('&quot;','"'))
+
+for f,k,m in [('plan_class_spec.xml','name', './'),
+              ('project.xml',        'name', './'),
+              ('config.xml',         'cmd',  './daemons/')]:
+    file = defaults["projhome"] + f
+    src=fmt(open(join(rootdir,f)).read())
+    if exists(file):
+        xmlmerge(src,file,idkey=k,mergeat=m)
+    else:
+        open(file,'w').write(src)
