@@ -85,6 +85,11 @@ def create_version_desc(wrapper_file, app_name, appfolder):
 
 	wrapper = basename(wrapper_file)
 
+        if "windows" in wrapper:
+            ok_app_name = app_name + ".bat"
+        else:
+            ok_app_name = app_name
+
 	version_content = fmt(dedent("""
 					<version>
 						<file>
@@ -92,7 +97,7 @@ def create_version_desc(wrapper_file, app_name, appfolder):
 							<main_program/>
 						</file>
 						<file>
-							<physical_name>{app_name}</physical_name>
+							<physical_name>{ok_app_name}</physical_name>
 					  		<logical_name>{app_name}</logical_name>
 						</file>
 
@@ -134,47 +139,36 @@ def create_template_in(app_name, input_files_names):
   return template_file
 
 def create_template_out(app_name, output_files_names):
-        fmt = partial(lambda s,f: s.format(**dict(globals(),**f.f_locals)),f=currentframe())
 
         print fmt("Creating output template for job...")
 
+        with open("config.xml", "r+") as config:
+                contents = config.readlines()
+                for line in contents:
+                        if "upload_url" in line:
+                                upload_url = (line.split(">"))[1].split("<")[0]
+
         template_file = "/home/boincadm/project/templates/" + app_name + "_out"
 
-        template_out_delete = "rm " + template_file
+        root = ET.Element("output_template")
 
-        if exists(template_file):
-              subprocess.call(template_out_delete, shell=True)
+        for i in output_files_names:
+            fileinfo = ET.SubElement(root, "file_info")
+            ET.SubElement(fileinfo, "name").text = i
+            ET.SubElement(fileinfo, "generated_locally")
+            ET.SubElement(fileinfo, "upload_when_present")
+            ET.SubElement(fileinfo, "max_nbytes").text = "134217728"
+            ET.SubElement(fileinfo, "url").text = upload_url
+     
+        result = ET.SubElement(root, "result")
+        for i in output_files_names:
+            fileref = ET.SubElement(result, "file_ref")
+            ET.SubElement(fileref, "file_name").text = i
+            ET.SubElement(fileref, "open_name").text = i
+            ET.SubElement(fileref, "copy_file").text = "1"
+            ET.SubElement(fileref, "optional").text = "1"
 
-        output_file_name = output_files_names[0]
-
-	template_out_content =fmt(dedent("""<?xml version="1.0"?>
-
-						<output_template>
-
-								<file_info>
-									<name>{output_file_name}</name>
-									<generated_locally/>
-									<upload_when_present/>
-									<max_nbytes>134217728</max_nbytes>
-									<url><UPLOAD_URL/></url>
-								</file_info>
-
-								<result>
-									<file_ref>
-											<file_name>{output_file_name}</file_name>
-											<open_name>{output_file_name}</open_name>
-											<copy_file>1</copy_file>
-											<optional>1</optional>
-									</file_ref>
-								</result>
-
-						</output_template>
-						"""))
-
-
-	template_out = open(template_file, "w")
-	template_out.write(template_out_content)
-	template_out.close()
+        open(template_file,'w').write(minidom.parseString(ET.tostring(root, 'utf-8')).toprettyxml(indent=" "*4))
 
 	return 0
 
@@ -294,7 +288,7 @@ def get_image_size(image):
     return sh('docker inspect --format "{{ .Size }}" '+image)
 
 
-def make_docker_script(appfolder, app_name, image, ngpus, output_files_names):
+def make_docker_script(appfolder, app_name, image, ngpus, output_files_names, platform):
 
 	fmt = partial(lambda s,f: s.format(**dict(globals(),**f.f_locals)),f=currentframe())
 
@@ -316,25 +310,31 @@ def make_docker_script(appfolder, app_name, image, ngpus, output_files_names):
 
         output_file_name = output_files_names[0]
 
-	script = fmt(dedent("""#!/bin/sh
+        if "windows" in platform: 
+            wsl = "wsl "
+            bin_sh = " "
+        else:
+            wsl = " "
+            bin_sh = "#!/bin/sh"
+
+	script = fmt(dedent("""{bin_sh}
 
               #the command unzip all .tar.manual.gz files in directory docker_image and extracts them to the directory image
-              for f in ./*.tar.manual.gz; do [ -e $f ] && gunzip -c $f > ./$(basename $f .manual.gz); done
+              {wsl}for f in ./*.tar.manual.gz; do [ -e $f ] && gunzip -c $f > ./$(basename $f .manual.gz); done
 
               #the command collects all tar files in docker_image and image directories, extracts their contents and combines them into a single directory, named image/combined
-              cat $(for f in ./*.tar; do [ -e $f ] && echo $f; done) | tar xi -C ./
+              {wsl}cat $(for f in ./*.tar; do [ -e $f ] && echo $f; done) | tar xi -C ./
 
-              rm  ./*.tar
-              tar cf - -C ./ . | docker load
+              {wsl}rm  ./*.tar
+              {wsl}tar cf - -C ./ . | docker load
 
-              {docker_command}  >> {output_file_name}
-
-              sleep 600
+              {wsl}{docker_command}  >> {output_file_name}
+              {wsl} sleep 10000
 
 	"""))
 
-	docker_script_path = appfolder + "/" + app_name
-
+	docker_script_path = appfolder + "/" + app_name + (".bat" if "windows" in platform else "")
+        print(docker_script_path)
 	docker_script = open(docker_script_path, "w")
 	docker_script.write(script)
 	docker_script.close()
@@ -354,7 +354,7 @@ def add_new_app_to_project(app_name):
 		contents = project_config.readlines()
 		len_contents = len(contents)
 		for i in range(len_contents):
-			if i == (len_contents - 2):
+			if i == (len_contents - 1):
 				contents.insert(i, line)
 
 	with open("project.xml", "r") as file:
@@ -459,8 +459,11 @@ def add_new_app(app_name, image, plan_class_name, input_files, ngpus, output_fil
             print("create docker script")
 
             # create docker script
-            make_docker_script(appfolder, app_name, image, ngpus, output_files_names)
-            os.chown(appfolder + "/" + app_name, uid, gid)
+            make_docker_script(appfolder, app_name, image, ngpus, output_files_names, platform)
+            if "windows" in platform:
+                os.chown(appfolder + "/" + app_name + ".bat", uid, gid)
+            else: 
+                os.chown(appfolder + "/" + app_name, uid, gid)
 
             print("create job file")
 
@@ -498,7 +501,10 @@ def add_new_app(app_name, image, plan_class_name, input_files, ngpus, output_fil
     # start daemons
     subprocess.call("/home/boincadm/project/bin/start")
 
-    os.chown("/home/boincadm/project/download/" + app_name, uid, gid)
+    if "windows" in platform:
+        os.chown("/home/boincadm/project/download/" + app_name + ".bat", uid, gid)
+    else:
+        os.chown("/home/boincadm/project/download/" + app_name, uid, gid)
 
     os.chown("/home/boincadm/project/download/" + app_name + ".xml", uid, gid)
 
