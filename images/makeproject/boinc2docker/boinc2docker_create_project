@@ -8,8 +8,7 @@ import yaml
 from zipfile import ZipFile
 from functools import partial
 from subprocess import check_output
-from shutil import copy as _copy
-from distutils.dir_util import copy_tree
+from shutil import copy
 import xml.etree.ElementTree as et
 from xml.dom import minidom
 from textwrap import dedent
@@ -62,3 +61,5 @@ for f,k,m in [('plan_class_spec.xml','name', './'),
         xmlmerge(src,file,idkey=k,mergeat=m)
     else:
         open(file,'w').write(src)
+
+copy(join(rootdir,'boinc2docker_create_app'),join(defaults["projhome"],'bin'))
