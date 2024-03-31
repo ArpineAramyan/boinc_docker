@@ -15,7 +15,7 @@ from os.path import join, exists, basename, dirname, abspath
 import random
 import tempfile
 import json
-import time
+import string
 import xml.etree.cElementTree as ET
 from xml.dom import minidom
 
@@ -66,6 +66,7 @@ def create_job_description_file(app_name, appfolder):
 					<job_desc>
 						<task>
 							<application>{app_name}</application>
+                            <command_line>boinc_docker</command_line>
 						</task>
 					</job_desc>
 
@@ -81,66 +82,74 @@ def create_job_description_file(app_name, appfolder):
 
 def create_version_desc(wrapper_file, app_name, appfolder):
 
-	fmt = partial(lambda s,f: s.format(**dict(globals(),**f.f_locals)),f=currentframe())
+    fmt = partial(lambda s,f: s.format(**dict(globals(),**f.f_locals)),f=currentframe())
 
-	wrapper = basename(wrapper_file)
+    wrapper = basename(wrapper_file)
 
-        if "windows" in wrapper:
-            ok_app_name = app_name + ".bat"
-        else:
-            ok_app_name = app_name
+    if "windows" in wrapper:
+        ok_app_name = app_name + ".bat"
+    else:
+        ok_app_name = app_name
 
-	version_content = fmt(dedent("""
-					<version>
-						<file>
-							<physical_name>{wrapper}</physical_name>
-							<main_program/>
-						</file>
-						<file>
-							<physical_name>{ok_app_name}</physical_name>
-					  		<logical_name>{app_name}</logical_name>
-						</file>
+    version_content = fmt(dedent("""
+                        <version>
+                            <file>
+                                <physical_name>{wrapper}</physical_name>
+                                <main_program/>
+                            </file>
+                            <file>
+                                <physical_name>{ok_app_name}</physical_name>
+                                <logical_name>{app_name}</logical_name>
+                            </file>
 
-						<file>
-							<physical_name>{app_name}.xml</physical_name>
-							<logical_name>job.xml</logical_name>
-						</file>
-					</version>
+                            <file>
+                                <physical_name>{app_name}.xml</physical_name>
+                                <logical_name>job.xml</logical_name>
+                            </file>
+                        </version>
 
-					"""))
+                        """))
 
 
-	version_path = appfolder + "/" + "version.xml"
-	version_file = open(version_path, "w")
-	version_file.write(version_content)
-	version_file.close()
+    version_path = appfolder + "/" + "version.xml"
+    version_file = open(version_path, "w")
+    version_file.write(version_content)
+    version_file.close()
 
-	return 0
+    return 0
 
 
 def create_template_in(app_name, input_files_names):
 
-  input_files_amount = len(input_files_names)
-  print fmt("Creating input template for job...")
-  root = ET.Element("input_template")
-  for i in range(input_files_amount):
-       fileinfo = ET.SubElement(root, "file_info")
-       ET.SubElement(fileinfo, "number").text = str(i)
-       #for flag i ET.SubElement(fileinfo, flag)
-  workunit = ET.SubElement(root, "workunit")
-  for i in range(input_files_amount):
-       fileref = ET.SubElement(workunit, "file_ref")
-       ET.SubElement(fileref, "file_number").text = str(i)
-       ET.SubElement(fileref, "open_name").text = input_files_names[i].split("/")[-1]
-       ET.SubElement(fileref, "copy_file")
-  template_file = join(tmpdir(),'boinc2docker_in_'+ app_name)
-  open(template_file,'w').write(minidom.parseString(ET.tostring(root, 'utf-8')).toprettyxml(indent=" "*4))
+        input_files_amount = len(input_files_names)
 
-  return template_file
+        print("Creating input template for job...")
 
-def create_template_out(app_name, output_files_names):
+        root = ET.Element("input_template")
+        for i in range(input_files_amount):
+            fileinfo = ET.SubElement(root, "file_info")
+            ET.SubElement(fileinfo, "number").text = str(i)
+            
 
-        print fmt("Creating output template for job...")
+        workunit = ET.SubElement(root, "workunit")
+        for i in range(input_files_amount - 1):
+            fileref = ET.SubElement(workunit, "file_ref")
+            ET.SubElement(fileref, "file_number").text = str(i)
+            ET.SubElement(fileref, "open_name").text = input_files_names[i].split("/")[-1]
+            ET.SubElement(fileref, "copy_file")
+
+        ET.SubElement(fileref, "file_number").text = str(input_files_amount)
+        ET.SubElement(fileref, "open_name").text = "boinc_docker"
+        ET.SubElement(fileref, "copy_file")
+
+        template_file = join(tmpdir(),'boinc2docker_in_'+ app_name)
+        open(template_file,'w').write(minidom.parseString(ET.tostring(root, 'utf-8')).toprettyxml(indent=" "*4))
+
+        return template_file
+
+def create_template_out(app_name, output_files_names, workunit_number):
+
+        print("Creating output template for job...")
 
         with open("config.xml", "r+") as config:
                 contents = config.readlines()
@@ -148,74 +157,73 @@ def create_template_out(app_name, output_files_names):
                         if "upload_url" in line:
                                 upload_url = (line.split(">"))[1].split("<")[0]
 
-        template_file = "/home/boincadm/project/templates/" + app_name + "_out"
+        template_file = "/home/boincadm/project/templates/" + app_name + "_" + workunit_number + "_out"
 
         root = ET.Element("output_template")
 
         for i in output_files_names:
             fileinfo = ET.SubElement(root, "file_info")
-            ET.SubElement(fileinfo, "name").text = i
+            ET.SubElement(fileinfo, "name").text = i + "_" + workunit_number
             ET.SubElement(fileinfo, "generated_locally")
             ET.SubElement(fileinfo, "upload_when_present")
             ET.SubElement(fileinfo, "max_nbytes").text = "134217728"
             ET.SubElement(fileinfo, "url").text = upload_url
-     
+            
         result = ET.SubElement(root, "result")
         for i in output_files_names:
             fileref = ET.SubElement(result, "file_ref")
-            ET.SubElement(fileref, "file_name").text = i
+            ET.SubElement(fileref, "file_name").text = i + "_" + workunit_number
             ET.SubElement(fileref, "open_name").text = i
             ET.SubElement(fileref, "copy_file").text = "1"
             ET.SubElement(fileref, "optional").text = "1"
 
         open(template_file,'w').write(minidom.parseString(ET.tostring(root, 'utf-8')).toprettyxml(indent=" "*4))
 
-	return 0
+        return template_file
 
 def create_sign_keys(uid, gid):
 
-	with open("config.xml", "r+") as config:
-		contents = config.readlines()
-		for line in contents:
-			if "key_dir" in line:
-				key_dir = (line.split(">"))[1].split("<")[0]
+        with open("config.xml", "r+") as config:
+            contents = config.readlines()
+            for line in contents:
+                if "key_dir" in line:
+                    key_dir = (line.split(">"))[1].split("<")[0]
 
         create_directories(key_dir)
 
-	generate_code_sign_key = "/home/boincadm/project/bin/crypt_prog -genkey 1024 " + key_dir + "/code_sign_private " + key_dir + "/code_sign_public"
+        generate_code_sign_key = "/home/boincadm/project/bin/crypt_prog -genkey 1024 " + key_dir + "/code_sign_private " + key_dir + "/code_sign_public"
 
-	generate_upload_key = "/home/boincadm/project/bin/crypt_prog -genkey 1024 " + key_dir + "/upload_private " + key_dir + "/upload_public"
+        generate_upload_key = "/home/boincadm/project/bin/crypt_prog -genkey 1024 " + key_dir + "/upload_private " + key_dir + "/upload_public"
 
-	if not os.path.isdir(key_dir):
-		create_directories(key_dir)
+        if not os.path.isdir(key_dir):
+            create_directories(key_dir)
 
-	if not os.path.isfile(key_dir + "/upload_private"):
-			subprocess.call(generate_upload_key, shell=True)
+        if not os.path.isfile(key_dir + "/upload_private"):
+            subprocess.call(generate_upload_key, shell=True)
 
 
+        if not os.path.isfile(key_dir + "/code_sign_private"):
+            subprocess.call(generate_code_sign_key, shell=True)
 
-	if not os.path.isfile(key_dir + "/code_sign_private"):
-			subprocess.call(generate_code_sign_key, shell=True)
+        keys = ["/code_sign_private", "/code_sign_public", "/upload_private", "/upload_public"]
+        for i in keys:
+            os.chown(key_dir + i, uid, gid)
 
-	keys = ["/code_sign_private", "/code_sign_public", "/upload_private", "/upload_public"]
-	for i in keys:
-		os.chown(key_dir + i, uid, gid)
-
-	return 0
+        return 0
 
 #get image id
 def get_image_id(image):
-    return sh('docker inspect --format "{{ .Id }}" '+image).strip().split(':')[1]
+        return sh('docker inspect --format "{{ .Id }}" '+image).strip().split(':')[1]
 
 # tmp dir only created on-demand to reduce disk access
 _tmpdir=[None]
 def tmpdir():
-    if _tmpdir[0] is None:
-          _tmpdir[0] = tempfile.mkdtemp()
-    return _tmpdir[0]
+        if _tmpdir[0] is None:
+            _tmpdir[0] = tempfile.mkdtemp()
+        return _tmpdir[0]
 
 def get_manifest(image_path):
-    return json.load(tarfile.open(image_path).extractfile('manifest.json'))
+        return json.load(tarfile.open(image_path).extractfile('manifest.json'))
 
 #save image and make
 def create_image (app_name, image, input_files, docker_registry):
@@ -288,27 +296,9 @@ def get_image_size(image):
     return sh('docker inspect --format "{{ .Size }}" '+image)
 
 
-def make_docker_script(appfolder, app_name, image, ngpus, output_files_names, platform):
+def create_script(appfolder, app_name, platform):
 
-	fmt = partial(lambda s,f: s.format(**dict(globals(),**f.f_locals)),f=currentframe())
-
-        if (ngpus > 0):
-           gpu_device = " --gpus \'\"device="
-
-           for i in range(ngpus):
-               if (i != ngpus - 1):
-                    gpu_device = gpu_device + str(i) + ","
-               else:
-                    gpu_device = gpu_device + str(i)
-
-           gpu_device = gpu_device + "\"\' "
-
-        else:
-           gpu_device = " "
-
-        docker_command = "docker run --rm" + gpu_device + image
-
-        output_file_name = output_files_names[0]
+        fmt = partial(lambda s,f: s.format(**dict(globals(),**f.f_locals)),f=currentframe())
 
         if "windows" in platform: 
             wsl = "wsl "
@@ -317,31 +307,21 @@ def make_docker_script(appfolder, app_name, image, ngpus, output_files_names, pl
             wsl = " "
             bin_sh = "#!/bin/sh"
 
-	script = fmt(dedent("""{bin_sh}
+        script = fmt(dedent("""{bin_sh}
+        {wsl}chmod 777 $1
 
-              #the command unzip all .tar.manual.gz files in directory docker_image and extracts them to the directory image
-              {wsl}for f in ./*.tar.manual.gz; do [ -e $f ] && gunzip -c $f > ./$(basename $f .manual.gz); done
+        {wsl}./$1
 
-              #the command collects all tar files in docker_image and image directories, extracts their contents and combines them into a single directory, named image/combined
-              {wsl}cat $(for f in ./*.tar; do [ -e $f ] && echo $f; done) | tar xi -C ./
+        """))
 
-              {wsl}rm  ./*.tar
-              {wsl}tar cf - -C ./ . | docker load
+        script_path = appfolder + "/" + app_name + (".bat" if "windows" in platform else "")
+        script = open(docker_script_path, "w")
+        script.write(script)
+        script.close()
 
-              {wsl}{docker_command}  >> {output_file_name}
-              {wsl} sleep 10000
+        os.chmod(script_path, stat.S_IRWXU | stat.S_IRWXG)
 
-	"""))
-
-	docker_script_path = appfolder + "/" + app_name + (".bat" if "windows" in platform else "")
-        print(docker_script_path)
-	docker_script = open(docker_script_path, "w")
-	docker_script.write(script)
-	docker_script.close()
-
-	os.chmod(docker_script_path, stat.S_IRWXU | stat.S_IRWXG)
-
-	return 0
+        return 0
 
 
 def add_new_app_to_project(app_name):
@@ -459,7 +439,7 @@ def add_new_app(app_name, image, plan_class_name, input_files, ngpus, output_fil
             print("create docker script")
 
             # create docker script
-            make_docker_script(appfolder, app_name, image, ngpus, output_files_names, platform)
+            create_script(appfolder, app_name, image, ngpus, output_files_names, platform)
             if "windows" in platform:
                 os.chown(appfolder + "/" + app_name + ".bat", uid, gid)
             else: 
@@ -520,6 +500,51 @@ def create_input_files(input_files):
 		subprocess.call(stage_input_files, shell=True)
 	return 0
 
+def create_workunit_number():
+    letters = string.ascii_lowercase + string.digits
+    result_str = ''.join(random.choice(letters) for i in range(10))
+    return result_str
+
+def create_docker_script(image, ngpus, output_files_name, input_files, app_name, workunit_number):
+        if (ngpus > 0):
+            gpu_device = " --gpus \'\"device="
+
+            for i in range(ngpus):
+                if (i != ngpus - 1):
+                    gpu_device = gpu_device + str(i) + ","
+                else:
+                    gpu_device = gpu_device + str(i)
+
+            gpu_device = gpu_device + "\"\' "
+
+        else:
+            gpu_device = " "
+        
+        docker_command = "docker run --rm" + gpu_device + image
+        script = fmt(dedent("""#!/bin/sh
+
+              #the command unzip all .tar.manual.gz files in directory docker_image and extracts them to the directory image
+              for f in ./*.tar.manual.gz; do [ -e $f ] && gunzip -c $f > ./$(basename $f .manual.gz); done
+
+              #the command collects all tar files in docker_image and image directories, extracts their contents and combines them into a single directory, named image/combined
+              cat $(for f in ./*.tar; do [ -e $f ] && echo $f; done) | tar xi -C ./
+
+              rm  ./*.tar
+              tar cf - -C ./ . | docker load
+
+              {docker_command}  >> {output_file_name}
+
+	    """))
+        docker_script_path = "/home/boincadm/project/docker_image/" + app_name + "/boinc_docker_" + workunit_number
+        docker_script = open(docker_script_path, "w")
+        docker_script.write(script)
+        docker_script.close()
+
+        input_files.append(docker_script_path)
+
+        return 0
+
+
 def create_new_job(app_name, image, new_app, plan_class_name, plan_class_new, plan_class_args, input_files, docker_registry, ngpus, output_files_names):
     if plan_class_new:
         create_new_plan_class(plan_class_name, plan_class_args)
@@ -529,10 +554,11 @@ def create_new_job(app_name, image, new_app, plan_class_name, plan_class_new, pl
     if new_app:
        add_new_app(app_name, image, plan_class_name, input_files, ngpus, output_files_names)
 
+    workunit_number = create_workunit_number()
+
+    create_docker_script(image, ngpus, output_files_names[0], input_files, app_name, workunit_number)
+
     create_input_files(input_files)
-    random_string = ""
-    for i in [0, 1, 2, 3, 4]:
-        random_string = random_string + random.choice("abcdefghijklmnopqrstuvwxyz")
 
     input_files_names = ""
     last_item = input_files[-1]
@@ -542,19 +568,11 @@ def create_new_job(app_name, image, new_app, plan_class_name, plan_class_new, pl
         else:
             input_files_names = input_files_names + i.split("/")[-1]
 
-    wu_name = app_name + "_" + random_string
-
     template_file_in = create_template_in(app_name, input_files)
-   
-    create_template_out(app_name, output_files_names)
 
-    #rsc_disk_bound = 3000000000
+    template_file_out = create_template_out(app_name, output_files_names, workunit_number)
 
-    #rsc_memory_bound = 3000000000
-
-    #create_work_command = "/home/boincadm/project/bin/create_work --appname " + app_name + " --rsc_disk_bound " + str(rsc_disk_bound) + " -rsc_memory_bound " + str(rsc_memory_bound) + " --wu_template " +  template_file_in  + " " + input_files_names
-
-    create_work_command = "/home/boincadm/project/bin/create_work --appname " + app_name + " --wu_template " +  template_file_in + " " + input_files_names
+    create_work_command = "/home/boincadm/project/bin/create_work --appname " + app_name + " --wu_template " +  template_file_in + " --result_template " + template_file_out + " --wu_name " + app_name + "_" + workunit_number + " " + input_files_names
 
     print(create_work_command)
 
