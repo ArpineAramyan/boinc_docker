@@ -16,6 +16,7 @@ import random
 import tempfile
 import json
 import string
+import time
 import xml.etree.cElementTree as ET
 from xml.dom import minidom
 
@@ -132,15 +133,11 @@ def create_template_in(app_name, input_files_names):
             
 
         workunit = ET.SubElement(root, "workunit")
-        for i in range(input_files_amount - 1):
+        for i in range(input_files_amount):
             fileref = ET.SubElement(workunit, "file_ref")
             ET.SubElement(fileref, "file_number").text = str(i)
-            ET.SubElement(fileref, "open_name").text = input_files_names[i].split("/")[-1]
+            ET.SubElement(fileref, "open_name").text = "boinc_docker" if (i == input_files_amount -1) else input_files_names[i].split("/")[-1]
             ET.SubElement(fileref, "copy_file")
-
-        ET.SubElement(fileref, "file_number").text = str(input_files_amount)
-        ET.SubElement(fileref, "open_name").text = "boinc_docker"
-        ET.SubElement(fileref, "copy_file")
 
         template_file = join(tmpdir(),'boinc2docker_in_'+ app_name)
         open(template_file,'w').write(minidom.parseString(ET.tostring(root, 'utf-8')).toprettyxml(indent=" "*4))
@@ -179,7 +176,7 @@ def create_template_out(app_name, output_files_names, workunit_number):
 
         open(template_file,'w').write(minidom.parseString(ET.tostring(root, 'utf-8')).toprettyxml(indent=" "*4))
 
-        return template_file
+        return "templates/" + app_name + "_" + workunit_number + "_out"
 
 def create_sign_keys(uid, gid):
 
@@ -300,24 +297,24 @@ def create_script(appfolder, app_name, platform):
 
         fmt = partial(lambda s,f: s.format(**dict(globals(),**f.f_locals)),f=currentframe())
 
-        if "windows" in platform: 
-            wsl = "wsl "
-            bin_sh = " "
+        script = fmt(dedent(""" hello """))
+
+        if "windows" in platform:
+        	script = fmt(dedent("""wsl chmod 777 %1
+				wsl bash %1"""))
+
         else:
-            wsl = " "
-            bin_sh = "#!/bin/sh"
+        	script = fmt(dedent("""#!/bin/bash
+         	chmod 777 $1
 
-        script = fmt(dedent("""{bin_sh}
-        {wsl}chmod 777 $1
+        	./$1
 
-        {wsl}./$1
-
-        """))
+        	"""))
 
         script_path = appfolder + "/" + app_name + (".bat" if "windows" in platform else "")
-        script = open(docker_script_path, "w")
-        script.write(script)
-        script.close()
+        script_file = open(script_path, "w")
+        script_file.write(script)
+        script_file.close()
 
         os.chmod(script_path, stat.S_IRWXU | stat.S_IRWXG)
 
@@ -439,7 +436,7 @@ def add_new_app(app_name, image, plan_class_name, input_files, ngpus, output_fil
             print("create docker script")
 
             # create docker script
-            create_script(appfolder, app_name, image, ngpus, output_files_names, platform)
+            create_script(appfolder, app_name, platform)
             if "windows" in platform:
                 os.chown(appfolder + "/" + app_name + ".bat", uid, gid)
             else: 
@@ -481,10 +478,8 @@ def add_new_app(app_name, image, plan_class_name, input_files, ngpus, output_fil
     # start daemons
     subprocess.call("/home/boincadm/project/bin/start")
 
-    if "windows" in platform:
-        os.chown("/home/boincadm/project/download/" + app_name + ".bat", uid, gid)
-    else:
-        os.chown("/home/boincadm/project/download/" + app_name, uid, gid)
+    os.chown("/home/boincadm/project/download/" + app_name + ".bat", uid, gid)
+    os.chown("/home/boincadm/project/download/" + app_name, uid, gid)
 
     os.chown("/home/boincadm/project/download/" + app_name + ".xml", uid, gid)
 
@@ -505,7 +500,9 @@ def create_workunit_number():
     result_str = ''.join(random.choice(letters) for i in range(10))
     return result_str
 
-def create_docker_script(image, ngpus, output_files_name, input_files, app_name, workunit_number):
+def create_docker_script(image, ngpus, output_file_name, input_files, app_name, workunit_number):
+	fmt = partial(lambda s,f: s.format(**dict(globals(),**f.f_locals)),f=currentframe())
+
         if (ngpus > 0):
             gpu_device = " --gpus \'\"device="
 
