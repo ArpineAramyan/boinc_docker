@@ -297,19 +297,17 @@ def create_script(appfolder, app_name, platform):
 
         fmt = partial(lambda s,f: s.format(**dict(globals(),**f.f_locals)),f=currentframe())
 
-        script = fmt(dedent(""" hello """))
-
         if "windows" in platform:
-        	script = fmt(dedent("""wsl chmod 777 %1
-				wsl bash %1"""))
+            script = fmt(dedent("""wsl chmod 777 %1
+                wsl bash %1"""))
 
         else:
-        	script = fmt(dedent("""#!/bin/bash
-         	chmod 777 $1
+            script = fmt(dedent("""#!/bin/bash
+            chmod 777 $1
 
-        	./$1
+            ./$1
 
-        	"""))
+            """))
 
         script_path = appfolder + "/" + app_name + (".bat" if "windows" in platform else "")
         script_file = open(script_path, "w")
@@ -501,42 +499,51 @@ def create_workunit_number():
     return result_str
 
 def create_docker_script(image, ngpus, output_file_name, input_files, app_name, workunit_number, bash_script):
-	fmt = partial(lambda s,f: s.format(**dict(globals(),**f.f_locals)),f=currentframe())
+        fmt = partial(lambda s,f: s.format(**dict(globals(),**f.f_locals)),f=currentframe())
 
-        if (ngpus > 0):
-            gpu_device = " --gpus \'\"device="
-
-            for i in range(ngpus):
-                if (i != ngpus - 1):
-                    gpu_device = gpu_device + str(i) + ","
-                else:
-                    gpu_device = gpu_device + str(i)
-
-            gpu_device = gpu_device + "\"\' "
-
-        else:
-            gpu_device = " "
-        
-        docker_command = "docker run --rm" + gpu_device + image
-        script = fmt(dedent("""#!/bin/sh
-
-              #the command unzip all .tar.manual.gz files in directory docker_image and extracts them to the directory image
-              for f in ./*.tar.manual.gz; do [ -e $f ] && gunzip -c $f > ./$(basename $f .manual.gz); done
-
-              #the command collects all tar files in docker_image and image directories, extracts their contents and combines them into a single directory, named image/combined
-              cat $(for f in ./*.tar; do [ -e $f ] && echo $f; done) | tar xi -C ./
-
-              rm  ./*.tar
-              tar cf - -C ./ . | docker load
-
-              {docker_command}  >> {output_file_name}
-
-	    """))
         docker_script_path = "/home/boincadm/project/docker_image/" + app_name + "/boinc_docker_" + workunit_number
-        docker_script = open(docker_script_path, "w")
-        docker_script.write(script)
-        docker_script.close()
 
+        if (bash_script == "none"):
+            if (ngpus > 0):
+                gpu_device = " --gpus \'\"device="
+
+                for i in range(ngpus):
+                    if (i != ngpus - 1):
+                        gpu_device = gpu_device + str(i) + ","
+                    else:
+                        gpu_device = gpu_device + str(i)
+
+                gpu_device = gpu_device + "\"\' "
+
+            else:
+                gpu_device = " "
+
+            docker_command = "docker run --rm" + gpu_device + image
+            script = fmt(dedent("""#!/bin/sh
+
+                    #the command unzip all .tar.manual.gz files in directory docker_image and extracts them to the directory image
+                    for f in ./*.tar.manual.gz; do [ -e $f ] && gunzip -c $f > ./$(basename $f .manual.gz); done
+
+                    #the command collects all tar files in docker_image and image directories, extracts their contents and combines them into a single directory, named image/combined
+                    cat $(for f in ./*.tar; do [ -e $f ] && echo $f; done) | tar xi -C ./
+
+                    rm  ./*.tar
+                    tar cf - -C ./ . | docker load
+
+                    {docker_command}  >> {output_file_name}
+
+            """))
+            with open(docker_script_path, "w") as docker_script:
+                docker_script.write(script)
+        else: 
+            line = "\nfor f in ./*.tar.manual.gz; do [ -e $f ] && gunzip -c $f > ./$(basename $f .manual.gz); done\n" + "\ncat $(for f in ./*.tar; do [ -e $f ] && echo $f; done) | tar xi -C ./ \n" + "\nrm  ./*.tar \n" + "\ntar cf - -C ./ . | docker load \n"
+            with open(bash_script, "r+") as bash_script_file:
+                script = bash_script_file.readlines()
+                script.insert(1, line)
+
+            with open(docker_script_path, "w") as docker_script:
+                docker_script.writelines(script)
+                
         input_files.append(docker_script_path)
 
         return 0
