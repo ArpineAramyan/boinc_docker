@@ -500,7 +500,7 @@ def create_workunit_number():
     result_str = ''.join(random.choice(letters) for i in range(10))
     return result_str
 
-def create_docker_script(image, ngpus, output_file_name, input_files, app_name, workunit_number):
+def create_docker_script(image, ngpus, output_file_name, input_files, app_name, workunit_number, bash_script):
 	fmt = partial(lambda s,f: s.format(**dict(globals(),**f.f_locals)),f=currentframe())
 
         if (ngpus > 0):
@@ -542,7 +542,7 @@ def create_docker_script(image, ngpus, output_file_name, input_files, app_name, 
         return 0
 
 
-def create_new_job(app_name, image, new_app, plan_class_name, plan_class_new, plan_class_args, input_files, docker_registry, ngpus, output_files_names):
+def create_new_job(app_name, image, new_app, plan_class_name, plan_class_new, plan_class_args, input_files, docker_registry, ngpus, output_files_names, bash_script):
     if plan_class_new:
         create_new_plan_class(plan_class_name, plan_class_args)
 
@@ -553,7 +553,7 @@ def create_new_job(app_name, image, new_app, plan_class_name, plan_class_new, pl
 
     workunit_number = create_workunit_number()
 
-    create_docker_script(image, ngpus, output_files_names[0], input_files, app_name, workunit_number)
+    create_docker_script(image, ngpus, output_files_names[0], input_files, app_name, workunit_number, bash_script)
 
     create_input_files(input_files)
 
@@ -599,8 +599,9 @@ if __name__=='__main__':
     parser.add_argument('--input_files', type=list_of_strings, default=[], help='list of input_files for the job')
     parser.add_argument('--docker_registry', type=list_of_strings, default=[], help='list of docker login options for using your own docker registry: user, password, docker registry name')
     parser.add_argument('--output_files_names', type=list_of_strings, default=['test'], help='list of output files names')
+    parser.add_argument('--bash_script_path', default='none', help='path to bash script file of the user')
     args = parser.parse_args()
 
     plan_class_args = {'gpu_type': args.gpu_type, 'min_gpu_ram_mb':args.min_gpu_ram_mb, 'gpu_ram_used_mb':args.gpu_ram_used_mb, 'ngpus':args.ngpus, 'driver_versions':args.driver_versions, 'cuda_versions':args.cuda_versions, 'use_ati_libs':args.use_ati_libs, 'use_amd_libs': args.use_amd_libs, 'min_ncpus':args.min_ncpus, 'max_threads':args.max_threads, 'mem_usage_base_mb':args.mem_usage_base_mb, 'mem_usage_per_cpu_mb':args.mem_usage_per_cpu_mb}
-    create_new_job(app_name=args.appname, image=args.image, new_app=args.new_app, plan_class_name=args.plan_class_name, plan_class_new=args.plan_class_new, plan_class_args=plan_class_args, input_files=args.input_files, docker_registry=args.docker_registry, ngpus=args.ngpus, output_files_names=args.output_files_names)
+    create_new_job(app_name=args.appname, image=args.image, new_app=args.new_app, plan_class_name=args.plan_class_name, plan_class_new=args.plan_class_new, plan_class_args=plan_class_args, input_files=args.input_files, docker_registry=args.docker_registry, ngpus=args.ngpus, output_files_names=args.output_files_names, bash_script=args.bash_script_path)
 
