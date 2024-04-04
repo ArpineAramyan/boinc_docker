@@ -233,58 +233,59 @@ def create_image (app_name, image, input_files, docker_registry):
         if not exists(path):
                os.mkdir(path)
 
-        if (docker_registry != []):
-           docker_registry_login = "docker login -u " + docker_registry[0] + " -p " + docker_registry[1] + " " + docker_registry[2]
-           subprocess.call(docker_registry_login, shell=True)
+        for i in image:
+            if (docker_registry != []):
+                docker_registry_login = "docker login -u " + docker_registry[0] + " -p " + docker_registry[1] + " " + docker_registry[2]
+                subprocess.call(docker_registry_login, shell=True)
 
-        try:
-              image_id = get_image_id(image)
-        except subprocess.CalledProcessError as e:
-              if 'No such image' in e.output:
-                 get_image = "docker pull " + image
-                 subprocess.call(get_image, shell=True)
-                 image_id = get_image_id(image)
-              else:
-                 raise
+            try:
+                image_id = get_image_id(i)
+            except subprocess.CalledProcessError as e:
+                if 'No such image' in e.output:
+                    get_image = "docker pull " + i
+                    subprocess.call(get_image, shell=True)
+                    image_id = get_image_id(i)
+                else:
+                    raise
 
-        image_filename_tar = "image_" + image_id + ".tar"
-        image_path = path + "/" + image_filename_tar
+            image_filename_tar = "image_" + image_id + ".tar"
+            image_path = path + "/" + image_filename_tar
 
-        if exists(image_path):
-             #get description of layers and image
-             manifest = get_manifest(image_path)
-        else:
-             #save docker image, than extracts all contents from tar archive
-             #that is being piped in through stdin and then stores them in
-             #the current directory specified by
-             save_docker_image = "docker save " + image + "| tar xf - -C " + tmpdir()
-             sh(save_docker_image)
-             manifest = json.load(open(join(tmpdir(), 'manifest.json')))
-
-
-        for layer in manifest[0]['Layers']:
-             layer_id = layer.split("/")[0]
-             layer_filename_tar = "layer_" + layer_id + ".tar"
-             layer_path = path + "/" + layer_filename_tar
-
-             #create tar file for layers of the image in verbose mode
-             print ("Creating tar layer archive %s"%layer_id[:12])
-             layer_tar = "tar cvf " + layer_path + " -C " + tmpdir() + " " + layer_id
-             sh(layer_tar)
-             print ("Creating gzip archive for layer %s"%layer_id[:12])
-             layer_zip = "gzip -nfS .manual.gz " + layer_path
-             sh(layer_zip)
-             input_files.append(layer_path + ".manual.gz")
+            if exists(image_path):
+                #get description of layers and image
+                manifest = get_manifest(image_path)
+            else:
+                #save docker image, than extracts all contents from tar archive
+                #that is being piped in through stdin and then stores them in
+                #the current directory specified by
+                save_docker_image = "docker save " + i + "| tar xf - -C " + tmpdir()
+                sh(save_docker_image)
+                manifest = json.load(open(join(tmpdir(), 'manifest.json')))
 
 
-        #create tar file for image in verbose mode, it consists of image_id, manifest.json and repository
-        print ("Creating tar image archive %s"%image_id[:12])
-        image_tar = "tar cvf " + image_path + " -C " + tmpdir() + " " + image_id + ".json " + "manifest.json repositories"
-        sh(image_tar)
-        print ("Creating gzip archive for image %s"%image_id[:12])
-        image_zip = "gzip -nfS .manual.gz " + image_path
-        sh(image_zip)
-        input_files.append(image_path + ".manual.gz")
+            for layer in manifest[0]['Layers']:
+                layer_id = layer.split("/")[0]
+                layer_filename_tar = "layer_" + layer_id + ".tar"
+                layer_path = path + "/" + layer_filename_tar
+
+                #create tar file for layers of the image in verbose mode
+                print ("Creating tar layer archive %s"%layer_id[:12])
+                layer_tar = "tar cvf " + layer_path + " -C " + tmpdir() + " " + layer_id
+                sh(layer_tar)
+                print ("Creating gzip archive for layer %s"%layer_id[:12])
+                layer_zip = "gzip -nfS .manual.gz " + layer_path
+                sh(layer_zip)
+                input_files.append(layer_path + ".manual.gz")
+
+
+            #create tar file for image in verbose mode, it consists of image_id, manifest.json and repository
+            print ("Creating tar image archive %s"%image_id[:12])
+            image_tar = "tar cvf " + image_path + " -C " + tmpdir() + " " + image_id + ".json " + "manifest.json repositories"
+            sh(image_tar)
+            print ("Creating gzip archive for image %s"%image_id[:12])
+            image_zip = "gzip -nfS .manual.gz " + image_path
+            sh(image_zip)
+            input_files.append(image_path + ".manual.gz")
 
         return 0
 
@@ -518,7 +519,7 @@ def create_docker_script(image, ngpus, output_file_name, input_files, app_name, 
             else:
                 gpu_device = " "
 
-            docker_command = "docker run --rm" + gpu_device + image
+            docker_command = "docker run --rm" + gpu_device + image[0]
             script = fmt(dedent("""#!/bin/sh
 
                     #the command unzip all .tar.manual.gz files in directory docker_image and extracts them to the directory image
@@ -588,7 +589,7 @@ if __name__=='__main__':
     parser = argparse.ArgumentParser(prog='create_new_job')
     parser.add_argument('--appname', default='boinc_docker', help='appname (default: boinc2docker)')
     parser.add_argument('--new_app', action='store_true', help='add new application to the BOINC server')
-    parser.add_argument('--image', default='hello-world', help='docker image to run (default: hello-world), if your own docker registry is used, please add correct path to image')
+    parser.add_argument('--image', type=list_of_strings, default=['hello-world'], help='docker images to run (default: hello-world), if your own docker registry is used, please add correct path to image')
     parser.add_argument('--plan_class_new', action='store_true', help='add new plan class to the BOINC server, if mentioned with flag new_app, than the application will be created with new specified plan class')
     parser.add_argument('--plan_class_name', default='vbox64_mt', help='name of the plan class')
     parser.add_argument('--gpu_type', default='none', choices=['nvidia', 'amd'], help='type of the gpu')
