@@ -1,6 +1,6 @@
 <plan_classes>
     <plan_class>
         <name>docker_test</name>
-         <docker/>
+        <docker/>
     </plan_class>
 </plan_classes>
