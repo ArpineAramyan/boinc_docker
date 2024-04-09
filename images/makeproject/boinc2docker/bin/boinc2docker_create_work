@@ -209,6 +209,8 @@ def create_new_plan_class(plan_class_name, plan_class_args):
             plan_class_line = plan_class_line + "        <mem_usage_base_mb>" + plan_class_args['mem_usage_base_mb'] + "<mem_usage_base_mb/>\n"
         if (plan_class_args['mem_usage_per_cpu_mb'] > 0):
             plan_class_line = plan_class_line + "        <mem_usage_per_cpu_mb>" + plan_class_args['mem_usage_per_cpu_mb'] + "<mem_usage_per_cpu_mb/>\n"
+        #if (plan_class_line['use_docker']):
+        plan_class_line = plan_class_line + "        <docker/>\n"
         plan_class_line = plan_class_line + "     </plan_class>\n"
 
         with open("plan_class_spec.xml", "r+") as plan_class_config:
@@ -294,7 +296,7 @@ if __name__=='__main__':
     parser.add_argument('--new_app', action='store_true', help='add new application to the BOINC server')
     parser.add_argument('--image', type=list_of_strings, default=['hello-world'], help='docker images to run (default: hello-world), if your own docker registry is used, please add correct path to image')
     parser.add_argument('--plan_class_new', action='store_true', help='add new plan class to the BOINC server, if mentioned with flag new_app, than the application will be created with new specified plan class')
-    parser.add_argument('--plan_class_name', default='vbox64_mt', help='name of the plan class')
+    parser.add_argument('--plan_class_name', default='docker_test', help='name of the plan class')
     parser.add_argument('--gpu_type', default='none', choices=['nvidia', 'amd'], help='type of the gpu')
     parser.add_argument('--min_gpu_ram_mb', default=0, help='minimum amount of GPU RAM in MB')
     parser.add_argument('--gpu_ram_used_mb', default=0, help='requirement of this much available GPU RAM in MB')
@@ -303,6 +305,7 @@ if __name__=='__main__':
     parser.add_argument('--cuda_versions', type=list_of_strings, default=[], help='range of available cuda versions, the flag is used only for nvidia gpus' )
     parser.add_argument('--use_ati_libs', action='store_true', help='require libraries named ati, the flag is used for ATI/AMD gpus')
     parser.add_argument('--use_amd_libs', action='store_true', help='require libraries named amd, the flag is used for ATI/AMD gpus')
+    #parser.add_argument('--use_docker', action='store_true', help='require docker use')
     parser.add_argument('--min_ncpus', default=0, help='minimal amount of processors to use')
     parser.add_argument('--max_threads', default=0, help='maximal amount of threads to use')
     parser.add_argument('--mem_usage_base_mb', default=0, help='memmory usage')

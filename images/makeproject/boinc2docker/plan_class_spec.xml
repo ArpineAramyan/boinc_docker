@@ -1,7 +1,6 @@
 <plan_classes>
     <plan_class>
-        <name>mt_standart</name>
-        <min_ncpus>1</min_ncpus>
-        <max_threads>32</max_threads>
+        <name>docker_test</name>
+         <docker/>
     </plan_class>
 </plan_classes>
