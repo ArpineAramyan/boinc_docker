@@ -117,14 +117,14 @@ def create_image (app_name, image, input_files, docker_registry):
         for i in image:
             if (docker_registry != []):
                 docker_registry_login = "docker login -u " + docker_registry[0] + " -p " + docker_registry[1] + " " + docker_registry[2]
-                sh(docker_registry_login, shell=True)
+                sh(docker_registry_login)
 
             try:
                 image_id = get_image_id(i)
             except subprocess.CalledProcessError as e:
                 if 'No such image' in e.output:
                     get_image = "docker pull " + i
-                    sh(get_image, shell=True)
+                    sh(get_image)
                     image_id = get_image_id(i)
                 else:
                     raise
@@ -230,7 +230,7 @@ def create_new_plan_class(plan_class_name, plan_class_args):
 def create_input_files(input_files):
         for i in input_files:
             stage_input_files = "/home/boincadm/project/bin/stage_file " + i
-            sh(stage_input_files, shell=True)
+            sh(stage_input_files)
 
 def create_workunit_number():
         letters = string.ascii_lowercase + string.digits
@@ -265,7 +265,7 @@ def create_new_job(app_name, image, new_app, plan_class_name, plan_class_new, pl
 
         workunit_number = create_workunit_number()
 
-        create_docker_script(image, ngpus, output_files_names[0], input_files, app_name, workunit_number, bash_script)
+        create_docker_script(input_files, app_name, workunit_number, bash_script)
 
         create_input_files(input_files)
 
@@ -285,7 +285,7 @@ def create_new_job(app_name, image, new_app, plan_class_name, plan_class_new, pl
 
         print(create_work_command)
 
-        sh(create_work_command, shell=True)
+        sh(create_work_command)
 
 
 if __name__=='__main__':

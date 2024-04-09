@@ -85,7 +85,7 @@ chmod 777 $1
                 script_create.write(script)
 
 def create_job_description_file(app_name, appfolder):
-     
+
         root = ET.Element("job_desc")
 
         task = ET.SubElement(root, "task")
@@ -105,10 +105,15 @@ def add_new_app_to_project(app_name):
 
 	with open("project.xml", "r+") as project_config:
 		contents = project_config.readlines()
+                exists = 0
+                for j in contents:
+                        if (app_name in j):
+                            exists = 1
 		len_contents = len(contents)
-		for i in range(len_contents):
-			if i == (len_contents - 1):
-				contents.insert(i, line)
+                if (exists == 0):
+		    for i in range(len_contents):
+			  if i == (len_contents - 1):
+				  contents.insert(i, line)
 
 	with open("project.xml", "r") as file:
 		file.close()

@@ -62,4 +62,5 @@ for f,k,m in [('plan_class_spec.xml','name', './'),
     else:
         open(file,'w').write(src)
 
-copy(join(rootdir,'boinc2docker_create_app'),join(defaults["projhome"],'bin'))
+copy(join(rootdir,'./bin/boinc2docker_create_new_app.py'),join(defaults["projhome"],'bin'))
+copy(join(rootdir,'./bin/boinc2docker_create_work'),join(defaults["projhome"],'bin'))
