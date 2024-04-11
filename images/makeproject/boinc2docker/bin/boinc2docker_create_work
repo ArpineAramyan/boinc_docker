@@ -34,7 +34,7 @@ def create_template_in(app_name, input_files_names):
 
         input_files_amount = len(input_files_names)
 
-        print("Creating input template for job...")
+        #print("Creating input template for job...")
 
         root = ET.Element("input_template")
         for i in range(input_files_amount):
@@ -56,7 +56,7 @@ def create_template_in(app_name, input_files_names):
 
 def create_template_out(app_name, output_files_names, workunit_number):
 
-        print("Creating output template for job...")
+        #print("Creating output template for job...")
 
         with open("config.xml", "r+") as config:
                 contents = config.readlines()
@@ -150,20 +150,20 @@ def create_image (app_name, image, input_files, docker_registry):
                 layer_path = path + "/" + layer_filename_tar
 
                 #create tar file for layers of the image in verbose mode
-                print ("Creating tar layer archive %s"%layer_id[:12])
+                #print ("Creating tar layer archive %s"%layer_id[:12])
                 layer_tar = "tar cvf " + layer_path + " -C " + tmpdir() + " " + layer_id
                 sh(layer_tar)
-                print ("Creating gzip archive for layer %s"%layer_id[:12])
+                #print ("Creating gzip archive for layer %s"%layer_id[:12])
                 layer_zip = "gzip -nfS .manual.gz " + layer_path
                 sh(layer_zip)
                 input_files.append(layer_path + ".manual.gz")
 
 
             #create tar file for image in verbose mode, it consists of image_id, manifest.json and repository
-            print ("Creating tar image archive %s"%image_id[:12])
+            #print ("Creating tar image archive %s"%image_id[:12])
             image_tar = "tar cvf " + image_path + " -C " + tmpdir() + " " + image_id + ".json " + "manifest.json repositories"
             sh(image_tar)
-            print ("Creating gzip archive for image %s"%image_id[:12])
+            #print ("Creating gzip archive for image %s"%image_id[:12])
             image_zip = "gzip -nfS .manual.gz " + image_path
             sh(image_zip)
             input_files.append(image_path + ".manual.gz")
@@ -287,9 +287,11 @@ def create_new_job(app_name, image, new_app, plan_class_name, plan_class_new, pl
 
         create_work_command = "/home/boincadm/project/bin/create_work --appname " + app_name + " --wu_template " +  template_file_in + " --result_template " + template_file_out + " --wu_name " + app_name + "_" + workunit_number + " " + input_files_names
 
-        print(create_work_command)
+        #print(create_work_command)
 
         sh(create_work_command)
+
+        print("Your workunit ID is: ", workunit_number)
 
 
 if __name__=='__main__':

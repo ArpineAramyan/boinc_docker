@@ -171,8 +171,6 @@ def add_new_app(app_name, image, plan_class_name, input_files, ngpus, output_fil
             create_directories(approot)
             os.chown(approot, uid, gid)
 
-        print(approot)
-
         #get wrapper, version, docker_script, job.xml to app_directories
         platforms = ["x86_64-pc-linux-gnu", "windows_x86_64", "x86_64-apple-darwin"]
         wrapper = {"x86_64-pc-linux-gnu": "26015", "windows_x86_64": "26015", "x86_64-apple-darwin":"26015"}
@@ -187,13 +185,9 @@ def add_new_app(app_name, image, plan_class_name, input_files, ngpus, output_fil
                 wrapper_file = get_wrapper(platform, appfolder, wrapper)
                 os.chown(wrapper_file, uid, gid)
 
-                print("create app version")
-
                 # create version description
                 create_version_desc(wrapper_file, app_name, appfolder)
                 os.chown(appfolder + "/version.xml", uid, gid)
-
-                print("create docker script")
 
                 # create docker script
                 create_script(appfolder, app_name, platform)
@@ -201,8 +195,6 @@ def add_new_app(app_name, image, plan_class_name, input_files, ngpus, output_fil
                     os.chown(appfolder + "/" + app_name + ".bat", uid, gid)
                 else: 
                     os.chown(appfolder + "/" + app_name, uid, gid)
-
-                print("create job file")
 
                 # create job.xml file
                 create_job_description_file(app_name, appfolder)
@@ -215,25 +207,16 @@ def add_new_app(app_name, image, plan_class_name, input_files, ngpus, output_fil
                     if os.path.isfile(appfolder + "/wrapper_26015_windows_x86_64.zip"):
                         os.remove(appfolder + "/wrapper_26015_windows_x86_64.zip")
 
-        print("add the application to the project")
-
         #add new application to project.xml
         add_new_app_to_project(app_name)
 
         create_sign_keys(uid, gid)
 
-        print("run command bin/xadd for adding new application")
-
         # run command bin/xadd for adding new application
         sh("/home/boincadm/project/bin/xadd")
 
-        print("run command bin/update_versions for adding application version")
-
-        sh("yes | /home/boincadm/project/bin/update_versions")
-
         # run command bin/update_versions for adding application version
-
-        print("start daemons")
+        sh("yes | /home/boincadm/project/bin/update_versions")
 
         # start daemons
         sh("/home/boincadm/project/bin/start")
