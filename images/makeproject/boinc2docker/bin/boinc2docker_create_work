@@ -179,7 +179,7 @@ def create_new_plan_class(plan_class_name, plan_class_args):
 
         #make new plan class to add to the configuration file
         plan_class_line = "     <plan_class>\n" + "        <name>" + plan_class_name + "</name>\n"
-        gpu_lib_type = plan_class_line + "        <cuda/>\n" if plan_class_args['gpu_type'] == "nvidia" else plan_class_line + "        <cal/>" if plan_class_args['gpu_type'] == "amd" else "none"
+        plan_class_line = plan_class_line + "        <cuda/>\n" if plan_class_args['gpu_type'] == "nvidia" else plan_class_line + "        <cal/>" if plan_class_args['gpu_type'] == "amd" else "none"
         if (plan_class_args['gpu_type'] != 'none'):
             plan_class_line = plan_class_line + "        <gpu_type>" + plan_class_args['gpu_type'] + "</gpu_type>\n"
             if (plan_class_args['ngpus'] != 0):
@@ -291,7 +291,7 @@ def create_new_job(app_name, image, new_app, plan_class_name, plan_class_new, pl
 
         sh(create_work_command)
 
-        print("Your workunit ID is: ", workunit_number)
+        print('Your workunit ID is: %s' %workunit_number)
 
 
 if __name__=='__main__':
@@ -305,8 +305,8 @@ if __name__=='__main__':
     parser.add_argument('--min_gpu_ram_mb', default=0, help='minimum amount of GPU RAM in MB')
     parser.add_argument('--gpu_ram_used_mb', default=0, help='requirement of this much available GPU RAM in MB')
     parser.add_argument('--ngpus', default=0, help='amount of gpus to use')
-    parser.add_argument('--driver_versions', type=list_of_strings, default=[], help='range of available gpu driver versions' )
-    parser.add_argument('--cuda_versions', type=list_of_strings, default=[], help='range of available cuda versions, the flag is used only for nvidia gpus' )
+    parser.add_argument('--driver_versions', type=list_of_strings, default=['0', '0'], help='range of available gpu driver versions' )
+    parser.add_argument('--cuda_versions', type=list_of_strings, default=['0', '0'], help='range of available cuda versions, the flag is used only for nvidia gpus' )
     parser.add_argument('--use_ati_libs', action='store_true', help='require libraries named ati, the flag is used for ATI/AMD gpus')
     parser.add_argument('--use_amd_libs', action='store_true', help='require libraries named amd, the flag is used for ATI/AMD gpus')
     #parser.add_argument('--use_docker', action='store_true', help='require docker use')
