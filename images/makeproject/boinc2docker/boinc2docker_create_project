@@ -52,8 +52,7 @@ def xmlmerge(src,dst,idkey='name',mergeat='./'):
 
     open(dst,'w').write(strip_white_space(minidom.parseString(et.tostring(droot))).toprettyxml(indent=" "*4).replace('&quot;','"'))
 
-for f,k,m in [('plan_class_spec.xml','name', './'),
-              ('project.xml',        'name', './'),
+for f,k,m in [('project.xml',        'name', './'),
               ('config.xml',         'cmd',  './daemons/')]:
     file = defaults["projhome"] + f
     src=fmt(open(join(rootdir,f)).read())
@@ -62,4 +61,6 @@ for f,k,m in [('plan_class_spec.xml','name', './'),
     else:
         open(file,'w').write(src)
 
-copy(join(rootdir,'boinc2docker_create_app'),join(defaults["projhome"],'bin'))
+copy(join(rootdir,'./bin/boinc2docker_create_new_app.py'),join(defaults["projhome"],'bin'))
+copy(join(rootdir,'./bin/boinc2docker_create_work'),join(defaults["projhome"],'bin'))
+copy(join(rootdir, 'plan_class_spec.xml'),defaults["projhome"])
