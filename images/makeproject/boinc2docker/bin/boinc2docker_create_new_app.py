@@ -102,27 +102,27 @@ def create_job_description_file(app_name, appfolder):
 
 def add_new_app_to_project(app_name):
 
-	line = "    <app>\n" + "        <name>" + app_name + "</name>\n" + \
-    		"        <user_friendly_name>" + app_name + \
-    		"</user_friendly_name>\n" + "    </app>\n"
+    line = "    <app>\n" + "        <name>" + app_name + "</name>\n" + \
+            "        <user_friendly_name>" + app_name + \
+            "</user_friendly_name>\n" + "    </app>\n"
 
-	with open("project.xml", "r+") as project_config:
-		contents = project_config.readlines()
-                exists = 0
-                for j in contents:
-                        if (app_name in j):
-                            exists = 1
-		len_contents = len(contents)
-                if (exists == 0):
-		    for i in range(len_contents):
-			  if i == (len_contents - 1):
-				  contents.insert(i, line)
+    with open("project.xml", "r+") as project_config:
+        contents = project_config.readlines()
+        exists = 0
+        for j in contents:
+            if (app_name in j):
+                exists = 1
+            len_contents = len(contents)
+            if (exists == 0):
+                for i in range(len_contents):
+                    if i == (len_contents - 1):
+                        contents.insert(i, line)
 
-	with open("project.xml", "r") as file:
-		file.close()
+    with open("project.xml", "r") as file:
+        file.close()
 
-	with open("project.xml", "w") as project_config:
-		project_config.writelines(contents)
+    with open("project.xml", "w") as project_config:
+        project_config.writelines(contents)
 
 
 def create_sign_keys(uid, gid):
