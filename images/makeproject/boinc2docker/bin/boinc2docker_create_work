@@ -237,17 +237,18 @@ def create_workunit_number():
         result_str = ''.join(random.choice(letters) for i in range(10))
         return result_str
 
-def create_docker_script(input_files, app_name, workunit_number, bash_script):
+def create_docker_script(image, input_files, app_name, workunit_number, bash_script):
 
         docker_script_path = "/home/boincadm/project/docker_image/" + app_name + "/boinc_docker_" + workunit_number
 
-        line = "\nfor f in ./*.tar.manual.gz; do [ -e $f ] && gunzip -c $f > ./$(basename $f .manual.gz); done\n" + "\ncat $(for f in ./*.tar; do [ -e $f ] && echo $f; done) | tar xi -C ./ \n" + "\nrm  ./*.tar \n" + "\ntar cf - -C ./ . | docker load \n"
-        with open(bash_script, "r+") as bash_script_file:
-            script = bash_script_file.readlines()
-            script.insert(1, line)
+        if (image[0] != 'none'):
+            line = "\nfor f in ./*.tar.manual.gz; do [ -e $f ] && gunzip -c $f > ./$(basename $f .manual.gz); done\n" + "\ncat $(for f in ./*.tar; do [ -e $f ] && echo $f; done) | tar xi -C ./ \n" + "\nrm  ./*.tar \n" + "\ntar cf - -C ./ . | docker load \n"
+            with open(bash_script, "r+") as bash_script_file:
+                script = bash_script_file.readlines()
+                script.insert(1, line)
 
-        with open(docker_script_path, "w") as docker_script:
-            docker_script.writelines(script)
+            with open(docker_script_path, "w") as docker_script:
+                docker_script.writelines(script)
                 
         input_files.append(docker_script_path)
 
@@ -258,14 +259,15 @@ def create_new_job(app_name, image, new_app, plan_class_name, plan_class_new, pl
         if plan_class_new:
             create_new_plan_class(plan_class_name, plan_class_args)
 
-        create_image(app_name, image, input_files, docker_registry)
+        if (image[0] != 'none'):
+            create_image(app_name, image, input_files, docker_registry)
 
         if new_app:
             add_new_app(app_name, image, plan_class_name, input_files, ngpus, output_files_names)
 
         workunit_number = create_workunit_number()
 
-        create_docker_script(image, ngpus, output_files_names[0], input_files, app_name, workunit_number, bash_script)
+        create_docker_script(image, input_files, app_name, workunit_number, bash_script)
 
         create_input_files(input_files)
 
@@ -292,9 +294,9 @@ if __name__=='__main__':
     parser = argparse.ArgumentParser(prog='create_new_job')
     parser.add_argument('--appname', default='boinc_docker', help='appname (default: boinc2docker)')
     parser.add_argument('--new_app', action='store_true', help='add new application to the BOINC server')
-    parser.add_argument('--image', type=list_of_strings, default=['hello-world'], help='docker images to run (default: hello-world), if your own docker registry is used, please add correct path to image')
+    parser.add_argument('--image', type=list_of_strings, default=['none'], help='docker images to run (default: none), if your own docker registry is used, please add correct path to image')
     parser.add_argument('--plan_class_new', action='store_true', help='add new plan class to the BOINC server, if mentioned with flag new_app, than the application will be created with new specified plan class')
-    parser.add_argument('--plan_class_name', default='vbox64_mt', help='name of the plan class')
+    parser.add_argument('--plan_class_name', default='docker_test', help='name of the plan class')
     parser.add_argument('--gpu_type', default='none', choices=['nvidia', 'amd'], help='type of the gpu')
     parser.add_argument('--min_gpu_ram_mb', default=0, help='minimum amount of GPU RAM in MB')
     parser.add_argument('--gpu_ram_used_mb', default=0, help='requirement of this much available GPU RAM in MB')

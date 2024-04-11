@@ -8,6 +8,7 @@ from functools import partial
 from textwrap import dedent
 from inspect import currentframe
 import pwd
+import stat
 
 def create_directories(dir):
         if not exists(dir):
@@ -58,8 +59,8 @@ def create_version_desc(wrapper_file, app_name, appfolder):
         ET.SubElement(fileinfo, "logical_name").text = app_name
 
         fileinfo = ET.SubElement(root, "file")
-        ET.SubElement(fileinfo, "physical_name").text = app_name
-        ET.SubElement(fileinfo, "physical_name").text = "job.xml"
+        ET.SubElement(fileinfo, "physical_name").text = app_name + ".xml"
+        ET.SubElement(fileinfo, "logical_name").text = "job.xml"
 
 
         version_path = appfolder + "/" + "version.xml"
@@ -83,6 +84,8 @@ chmod 777 $1
 
         with open(script_path, "w") as script_create:
                 script_create.write(script)
+
+        os.chmod(script_path, stat.S_IRWXU | stat.S_IRWXG)
 
 def create_job_description_file(app_name, appfolder):
      
