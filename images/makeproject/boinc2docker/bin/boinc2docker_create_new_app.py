@@ -114,9 +114,9 @@ def add_new_app_to_project(app_name):
                 exists = 1
         len_contents = len(contents)
         if (exists == 0):
-        for i in range(len_contents):
-             if i == (len_contents - 1):
-                  contents.insert(i, line)
+            for i in range(len_contents):
+                if i == (len_contents - 1):
+                    contents.insert(i, line)
 
     with open("project.xml", "r") as file:
         file.close()
