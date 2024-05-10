@@ -21,7 +21,7 @@ makeproject:
 	$(DC) build makeproject
 
 post-makeproject:
-	$(DC) run --rm makeproject
+	$(DC) run makeproject
 
 
 #--- apache ---

@@ -29,6 +29,7 @@ for file in \$\{project\}*; do
 done
 
 # copy files
+sleep 1000
 cp -rfT --preserve=mode,ownership $PROJECT_ROOT $PROJECT_ROOT_DEST
 mv $PROJECT_ROOT ${PROJECT_ROOT}.orig
 ln -s $PROJECT_ROOT_DEST $PROJECT_ROOT
